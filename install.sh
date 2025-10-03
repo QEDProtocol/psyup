@@ -88,11 +88,11 @@ install_qed_rollup_cli() {
     fi
     
     # Make binary executable
-    chmod +x qed_rollup_cli
+    chmod +x ./*
     
     # Install to system
     print_info "Installing qed_rollup_cli to ${install_dir}..."
-    sudo cp qed_rollup_cli "$install_dir/"
+    sudo cp ./* "$install_dir/"
     
     # Clean up
     rm -rf "$temp_dir"
