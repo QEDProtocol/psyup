@@ -62,7 +62,8 @@ get_architecture() {
 install_qed_rollup_cli() {
     local version=$1
     local arch=$2
-    local download_url="https://github.com/qed/psyup/releases/latest/download/qed_rollup_cli_${version}_${arch}.tar.gz"
+   # local download_url="https://github.com/qed/psyup/releases/latest/download/qed_rollup_cli_${version}_${arch}.tar.gz"
+    local download_url="https://raw.githubusercontent.com/QEDProtocol/psyup/refs/heads/main/qed_rollup_cli_${version}_${arch}.tar.gz"
     local temp_dir=$(mktemp -d)
     local install_dir="/usr/local/bin"
     
