@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+# Smoke test for psyup. Verifies dispatcher wiring against fake psyc / psy-cli
+# stubs and a local boilerplate tarball — no network, no real toolchain.
+set -eu
+
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+export PSY_HOME="$work/.psy"
+export PATH="$work/bin:$PATH"
+mkdir -p "$work/bin" "$PSY_HOME"
+
+# 1. dispatcher loads
+"$repo_root/psyup" version | grep -q '^psyup '
+
+# 2. help works without ~/.psy
+"$repo_root/psyup" help | grep -q 'psyup <command>'
+
+# 3. install fake toolchain that the dispatcher can find (bin/ + lib/psy-std/)
+mkdir -p "$PSY_HOME/toolchains/psy-0.0.0/bin" \
+         "$PSY_HOME/toolchains/psy-0.0.0/lib/psy-std"
+cat > "$PSY_HOME/toolchains/psy-0.0.0/bin/dargo" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = "build" ]; then
+    mkdir -p build && : > build/main.psyc
+    echo "dargo: built build/main.psyc DARGO_STD_PATH=${DARGO_STD_PATH:-unset}"
+    exit 0
+fi
+echo "dargo 0.0.0"
+EOF
+cat > "$PSY_HOME/toolchains/psy-0.0.0/bin/psy_user_cli" <<'EOF'
+#!/usr/bin/env bash
+echo "psy_user_cli invoked: $*"
+EOF
+# The other four binaries just exist to verify install symlinks them all.
+for b in psy_worker_cli psy_node_cli psy_dev_cli psy_relayer_cli; do
+    printf '#!/usr/bin/env bash\necho "%s stub"\n' "$b" \
+        > "$PSY_HOME/toolchains/psy-0.0.0/bin/$b"
+done
+echo "// fake std" > "$PSY_HOME/toolchains/psy-0.0.0/lib/psy-std/std.psy"
+chmod +x "$PSY_HOME/toolchains/psy-0.0.0/bin/"*
+
+mkdir -p "$PSY_HOME/bin"
+for b in dargo psy_user_cli psy_worker_cli psy_node_cli psy_dev_cli psy_relayer_cli; do
+    ln -sf "$PSY_HOME/toolchains/psy-0.0.0/bin/$b" "$PSY_HOME/bin/$b"
+done
+# Isolate PATH so the smoke test doesn't pick up real `dargo` from cargo bin.
+export PATH="$PSY_HOME/bin:/usr/bin:/bin"
+
+cat > "$PSY_HOME/settings.toml" <<EOF
+active = "0.0.0"
+default_network = "local"
+
+[networks.local]
+rpc_config = "$PSY_HOME/networks/local.json"
+EOF
+mkdir -p "$PSY_HOME/networks"
+echo '{}' > "$PSY_HOME/networks/local.json"
+
+# 4. build a local fake multi-template tarball (mirrors QEDProtocol/psy-template
+#    layout: top-level dirs are templates), serve via file:// URL.
+boiler="$work/boiler/psy-template-main"
+mkdir -p "$boiler/dapp/contract/src" "$boiler/contract/src"
+
+# dapp/ template — has both package.json and contract/Dargo.toml
+cat > "$boiler/dapp/package.json" <<'EOF'
+{ "name": "psy-dapp-template", "version": "0.1.0" }
+EOF
+cat > "$boiler/dapp/contract/Dargo.toml" <<'EOF'
+[package]
+name = "token"
+type = "bin"
+EOF
+echo "// hello psy" > "$boiler/dapp/contract/src/main.psy"
+
+# contract/ template — contract-only
+cat > "$boiler/contract/Dargo.toml" <<'EOF'
+[package]
+name = "hello"
+type = "bin"
+EOF
+echo "// hello psy" > "$boiler/contract/src/main.psy"
+
+( cd "$work/boiler" && tar -czf "$work/boiler.tar.gz" psy-template-main )
+
+# 5a. URL + #subdir extracts only the requested template
+cd "$work"
+"$repo_root/psyup" new demo --template "file://$work/boiler.tar.gz#dapp"
+
+[ -f demo/package.json ]              || { echo "FAIL: demo/package.json missing"; exit 1; }
+[ -f demo/contract/Dargo.toml ]       || { echo "FAIL: demo/contract/Dargo.toml missing"; exit 1; }
+[ ! -e demo/contract/src/main.psy ]   && { echo "FAIL: contract sources missing"; exit 1; }
+# The other template (contract/) should NOT have come along.
+[ ! -d demo/contract/src ] && { echo "FAIL: nested contract dir missing"; exit 1; }
+[ ! -f demo/Dargo.toml ]   || { echo "FAIL: extracted the wrong template (got contract/, want dapp/)"; exit 1; }
+
+grep -q '"name": "demo"' demo/package.json \
+    || { echo "FAIL: package.json name not rewritten"; cat demo/package.json; exit 1; }
+grep -q 'name = "demo"' demo/contract/Dargo.toml \
+    || { echo "FAIL: contract/Dargo.toml name not rewritten"; cat demo/contract/Dargo.toml; exit 1; }
+
+# 5b. URL with no subdir → whole archive copied (legacy single-template behavior)
+"$repo_root/psyup" new demo2 --template "file://$work/boiler.tar.gz"
+[ -d demo2/dapp ] && [ -d demo2/contract ] \
+    || { echo "FAIL: bare URL should copy the whole archive"; ls demo2; exit 1; }
+
+# 5c. #contract picks the other subdir
+"$repo_root/psyup" new demo3 --template "file://$work/boiler.tar.gz#contract"
+[ -f demo3/Dargo.toml ] || { echo "FAIL: #contract should yield a flat contract project"; exit 1; }
+grep -q 'name = "demo3"' demo3/Dargo.toml \
+    || { echo "FAIL: top-level Dargo.toml name not rewritten"; exit 1; }
+
+# 6. build — also asserts DARGO_STD_PATH gets auto-exported from settings.toml
+cd "$work/demo/contract"
+build_out=$("$repo_root/psyup" build)
+echo "$build_out" | grep -q 'dargo: built'
+echo "$build_out" | grep -q "DARGO_STD_PATH=$PSY_HOME/toolchains/psy-0.0.0/lib/psy-std/std.psy" \
+    || { echo "FAIL: DARGO_STD_PATH not exported by cmd_build"; echo "$build_out"; exit 1; }
+[ -f build/main.psyc ] || { echo "FAIL: build artifact missing"; exit 1; }
+
+# 7. deploy passes through to psy_user_cli with auto-filled --rpc-config
+out=$("$repo_root/psyup" deploy --private-key 0xdead --contract-path build/main.psyc 2>&1)
+echo "$out" | grep -q 'psy_user_cli invoked: deploy-contract --is-deploy --rpc-config' \
+    || { echo "FAIL: deploy didn't invoke psy_user_cli correctly"; echo "$out"; exit 1; }
+echo "$out" | grep -q -- "--private-key 0xdead" || { echo "FAIL: passthrough lost"; exit 1; }
+
+# 8. build error when no manifest
+cd "$work"
+if "$repo_root/psyup" build 2>/dev/null; then
+    echo "FAIL: build should error without Dargo.toml"
+    exit 1
+fi
+
+# 9. Full `psyup install` flow against the fake dist/ tarballs.
+#    Builds dist/ first, then points PSYUP_RELEASE_URL at file:// and runs install.
+echo "--- section 9: install via dist/ tarballs ---"
+bash "$repo_root/packaging/make-fake-toolchain.sh" 0.9.9 >/dev/null
+[ -f "$repo_root/dist/SHA256SUMS" ] || { echo "FAIL: make-fake-toolchain.sh did not produce SHA256SUMS"; exit 1; }
+
+# Use a fresh PSY_HOME so we exercise install from a clean slate.
+install_home="$work/.psy-install"
+rm -rf "$install_home"
+# Note: deliberately no $install_home/lib — the dispatcher falls back to
+# repo lib/ when PSY_HOME/lib doesn't exist, which is what we want here.
+mkdir -p "$install_home/bin" "$install_home/toolchains"
+
+# Seed env + settings.toml as install.sh would have done.
+cat > "$install_home/env" <<'EOF'
+export PATH="$HOME/.psy/bin:$PATH"
+# DARGO_STD_PATH=__PSYUP_MANAGED__
+EOF
+cat > "$install_home/settings.toml" <<EOF
+active = ""
+default_network = "local"
+
+[networks.local]
+rpc_config = "$install_home/networks/local.json"
+EOF
+
+PSY_HOME="$install_home" \
+PSYUP_RELEASE_URL="file://$repo_root/dist" \
+    "$repo_root/psyup" install 0.9.9
+
+# Verify the install landed:
+[ -d "$install_home/toolchains/psy-0.9.9/bin" ] \
+    || { echo "FAIL: toolchain bin/ not extracted"; ls -R "$install_home" 2>&1 | head; exit 1; }
+[ -x "$install_home/toolchains/psy-0.9.9/bin/dargo" ] \
+    || { echo "FAIL: dargo stub not present / not executable"; exit 1; }
+[ -f "$install_home/toolchains/psy-0.9.9/lib/psy-std/std.psy" ] \
+    || { echo "FAIL: psy-std not bundled"; exit 1; }
+for b in dargo psy_user_cli psy_worker_cli psy_node_cli psy_dev_cli psy_relayer_cli; do
+    [ -L "$install_home/bin/$b" ] || { echo "FAIL: $b not symlinked into ~/.psy/bin"; exit 1; }
+done
+
+# Sanity: an installed stub responds.
+"$install_home/bin/dargo" --version | grep -q '0.9.9' \
+    || { echo "FAIL: installed dargo stub didn't report 0.9.9"; exit 1; }
+
+# settings.toml should now have active = "0.9.9"
+grep -q 'active = "0.9.9"' "$install_home/settings.toml" \
+    || { echo "FAIL: settings.toml active not updated"; cat "$install_home/settings.toml"; exit 1; }
+
+# env file should have DARGO_STD_PATH pointing at the installed std
+grep -q "DARGO_STD_PATH=.*psy-0.9.9/lib/psy-std/std.psy" "$install_home/env" \
+    || { echo "FAIL: ~/.psy/env DARGO_STD_PATH not rewritten"; cat "$install_home/env"; exit 1; }
+
+echo "OK: all smoke checks passed"
