@@ -84,29 +84,41 @@ After `psyup install`, `~/.psy/env` is rewritten to
 can find the stdlib without falling back to a git clone. `psyup build` also
 sets this defensively in case the shell didn't source `~/.psy/env`.
 
-### `QEDProtocol/psy-template`
+### `logere/psy-template`
 
-Multi-template repo. Each top-level directory is a named template; `psyup new`
-downloads `archive/refs/heads/main.tar.gz` and extracts the requested subdir.
+Multi-template repo — each top-level directory is one named template.
+`psyup new` downloads the repo's `main` tarball and extracts the requested
+subdir. Currently only `dapp/` exists; new templates are added by dropping a
+new directory at the repo root.
 
 ```
 psy-template/
-├── dapp/               # default — React + contract starter
-│   ├── package.json
-│   ├── contract/Dargo.toml
-│   └── ...
-├── contract/           # contract-only template (planned)
-└── nft/                # NFT example (planned)
+└── dapp/                           # default — React + contract starter
+    ├── package.json                # top-level frontend manifest
+    ├── index.html
+    ├── tsconfig.json
+    ├── vite.config.ts
+    ├── src/                        # React app
+    │   ├── App.tsx
+    │   ├── main.tsx
+    │   ├── components/{ConnectBar,TokenPanel,TxLog}.tsx
+    │   ├── hooks/usePsy.ts
+    │   ├── lib/{psy,token}.ts
+    │   └── config.ts
+    └── contract/                   # PSY contract sub-package
+        ├── Dargo.toml
+        └── src/main.psy
 ```
 
 Selection:
 
 | invocation | result |
 |---|---|
-| `psyup new my-app` | default = `dapp/` subdir (controlled by `PSYUP_DEFAULT_TEMPLATE`) |
-| `psyup new my-app --template contract` | `contract/` subdir |
+| `psyup new my-app` | default subdir = `$PSYUP_DEFAULT_TEMPLATE` (currently `dapp`) |
+| `psyup new my-app --template <key>` | `<key>/` subdir of `logere/psy-template` |
 | `psyup new my-app --template owner/repo` | that repo's whole `main` archive |
-| `psyup new my-app --template https://...tar.gz` | that URL |
+| `psyup new my-app --template owner/repo#sub` | `sub/` subdir of that repo |
+| `psyup new my-app --template https://...tar.gz[#sub]` | direct tarball URL (with optional subdir) |
 
 After extraction, `psyup new` rewrites the project name in (where present):
 `Dargo.toml`, `contract/Dargo.toml`, and the top-level `package.json`.

@@ -4,7 +4,7 @@
 set -eu
 
 PSYUP_REPO="${PSYUP_REPO:-QEDProtocol/psyup}"
-PSYUP_BRANCH="${PSYUP_BRANCH:-main}"
+PSYUP_BRANCH="${PSYUP_BRANCH:-feat/parth-generic-v1}"
 PSY_HOME="${PSY_HOME:-$HOME/.psy}"
 RAW_BASE="https://raw.githubusercontent.com/${PSYUP_REPO}/${PSYUP_BRANCH}"
 
