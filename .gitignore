@@ -1,0 +1,14 @@
+# Build artifacts from packaging/make-fake-toolchain.sh
+/dist/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local installer state (in case someone runs install.sh against this checkout)
+/.psy/

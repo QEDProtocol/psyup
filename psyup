@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# psyup — PSY toolchain manager + project scaffolder.
+set -eu
+
+PSY_HOME="${PSY_HOME:-$HOME/.psy}"
+PSYUP_LIB="${PSYUP_LIB:-$PSY_HOME/lib}"
+
+# When running from a checkout (development), prefer the repo's own lib/.
+if [ -d "$(dirname "$0")/lib" ] && [ ! -d "$PSYUP_LIB" ]; then
+    PSYUP_LIB="$(cd "$(dirname "$0")/lib" && pwd)"
+fi
+
+[ -d "$PSYUP_LIB" ] || { echo "psyup: lib dir not found: $PSYUP_LIB" >&2; exit 1; }
+
+# shellcheck source=lib/common.sh
+. "$PSYUP_LIB/common.sh"
+
+require_shell_env() {
+    [ -f "$PSY_HOME/env" ] || return 0
+    case ":$PATH:" in
+        *:"$PSY_HOME/bin":*|*:"$PSY_HOME/bin/":*) return 0 ;;
+    esac
+
+    if [ "${SHELL##*/}" = "fish" ]; then
+        die "psyup environment is not loaded; run: source \"$PSY_HOME/env.fish\""
+    fi
+    die "psyup environment is not loaded; run: . \"$PSY_HOME/env\""
+}
+
+usage() {
+    cat <<'EOF'
+psyup — PSY toolchain manager
+
+USAGE:
+    psyup <command> [args...]
+
+COMMANDS:
+    install [version]    Install the PSY toolchain (psyc, psy-cli). Defaults to latest.
+    update               Update the toolchain to the latest released version.
+    uninstall            Remove ~/.psy entirely.
+    new <name>           Scaffold a new contract project from the boilerplate.
+                         Use --template <git-url> for a custom template.
+    build [args...]      Compile the contract project in the current directory.
+    deploy [args...]     Deploy the compiled contract via psy_user_cli deploy-contract.
+                         Pass-through; auto-fills --rpc-config from settings.toml.
+    claim [args...]      Claim miner rewards via psy_user_cli claim-rewards.
+                         Pass-through; auto-fills --rpc-config and --jobs-file.
+    init                 Create a default wallet at ~/.psy/keystore/default.
+    worker               Run the proof miner (resolves user_id from keystore or PRIVATE_KEY).
+    version              Print psyup version.
+    help                 Show this message.
+
+ENVIRONMENT:
+    PSY_HOME             Install root (default: ~/.psy)
+    PSYUP_TOOLCHAIN_REPO Override the toolchain repo (default: QEDProtocol/psyup)
+EOF
+}
+
+cmd=${1:-help}
+[ $# -gt 0 ] && shift || true
+
+case "$cmd" in
+    install|update|uninstall)
+        . "$PSYUP_LIB/cmd_install.sh"
+        "cmd_$cmd" "$@"
+        ;;
+    new)
+        . "$PSYUP_LIB/cmd_new.sh"
+        cmd_new "$@"
+        ;;
+    build)
+        require_shell_env
+        . "$PSYUP_LIB/cmd_build.sh"
+        cmd_build "$@"
+        ;;
+    deploy)
+        require_shell_env
+        . "$PSYUP_LIB/cmd_deploy.sh"
+        cmd_deploy "$@"
+        ;;
+    claim|claim-reward|claim-rewards)
+        require_shell_env
+        . "$PSYUP_LIB/cmd_claim_reward.sh"
+        cmd_claim_reward "$@"
+        ;;
+    init)
+        require_shell_env
+        . "$PSYUP_LIB/cmd_init.sh"
+        cmd_init "$@"
+        ;;
+    worker)
+        require_shell_env
+        . "$PSYUP_LIB/cmd_worker.sh"
+        cmd_worker "$@"
+        ;;
+    version|--version|-V)
+        echo "psyup 0.1.0"
+        ;;
+    help|--help|-h)
+        usage
+        ;;
+    *)
+        echo "psyup: unknown command: $cmd" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
