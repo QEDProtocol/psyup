@@ -1,22 +1,220 @@
 # psyup deploy — wraps `psy_user_cli deploy-contract` for the current project.
 #
-# Pass-through model: most flags go straight to psy_user_cli. If RPC_CONFIG is
-# not already set, use the config.json installed into PSY_HOME.
+# Auto-fills (when not already set on CLI):
+#   --rpc-config     ← RPC_CONFIG env, or $PSY_HOME/config.json
+#   --contract-path  ← ./target/<package>.json, ./<package>.json, or ./build/<package>.json
+#   --is-deploy      always added
 #
-# Required by psy_user_cli deploy-contract (set on CLI or via env):
-#     --private-key <hex>      | PRIVATE_KEY
-#     --contract-path <file>   | CONTRACT_PATH  (e.g. ./target/<name>.json)
-#     --rpc-config <file>      | RPC_CONFIG     (defaults to ~/.psy/config.json)
-#     --is-deploy              (auto-added)
+# Private key: psy_user_cli reads $PRIVATE_KEY natively (clap env). Just
+# `export PRIVATE_KEY=...` in your shell and psyup forwards env as-is.
+#
+# Any explicit user arg overrides the corresponding auto-fill.
+
+# Read the top-level `name = "..."` field from Dargo.toml.
+package_name_from_dargo() {
+    awk '
+        /^name[[:space:]]*=/ && !done {
+            sub(/^[^=]*=[[:space:]]*/, "")
+            gsub(/^"|"$/, "")
+            print
+            done=1
+        }
+    ' Dargo.toml 2>/dev/null
+}
+
+# Locate the compiled <package>.json. Prints the path or returns 1.
+locate_contract_artifact() {
+    local pkg=$1 p
+    for p in "target/$pkg.json" "$pkg.json" "build/$pkg.json"; do
+        if [ -f "$p" ]; then
+            printf '%s\n' "$p"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Detect which auto-fills are needed by scanning user args.
+has_flag() {
+    local needle=$1; shift
+    for a in "$@"; do
+        case "$a" in
+            "$needle"|"$needle"=*) return 0 ;;
+        esac
+    done
+    return 1
+}
 
 cmd_deploy() {
     [ -f Dargo.toml ] || die "no Dargo.toml in current directory"
     command -v psy_user_cli >/dev/null 2>&1 \
         || die "psy_user_cli not found in PATH (run 'psyup install' first)"
 
+    # --rpc-config / RPC_CONFIG (env passthrough)
     if [ -z "${RPC_CONFIG:-}" ] && [ -f "$PSY_HOME/config.json" ]; then
         export RPC_CONFIG="$PSY_HOME/config.json"
     fi
 
-    exec psy_user_cli deploy-contract --is-deploy "$@"
+    # --contract-path auto-fill from build output
+    if ! has_flag --contract-path "$@"; then
+        local pkg artifact
+        pkg=$(package_name_from_dargo)
+        if [ -z "$pkg" ]; then
+            warn "could not read package name from Dargo.toml; skipping --contract-path auto-fill"
+        elif artifact=$(locate_contract_artifact "$pkg"); then
+            say "using --contract-path=$artifact"
+            set -- --contract-path "$artifact" "$@"
+        else
+            die "compiled artifact not found (looked for target/$pkg.json, $pkg.json, build/$pkg.json) — run 'psyup build' first"
+        fi
+    fi
+
+    # Run psy_user_cli with full output streamed to the user, then
+    # post-process to extract and persist the deployed contract uuid.
+    local log
+    log=$(mktemp)
+    set +e
+    psy_user_cli deploy-contract --is-deploy "$@" 2>&1 | tee "$log"
+    local rc=${PIPESTATUS[0]}
+    set -e
+
+    if [ "$rc" -eq 0 ]; then
+        local uuid
+        uuid=$(awk '
+            /contract deployed:/ {
+                for (i = 1; i <= NF; i++) if ($i ~ /^[0-9a-fA-F]{32,}$/) print $i
+            }
+        ' "$log" | tail -n1)
+        if [ -n "$uuid" ]; then
+            say "✓ contract_uuid: $uuid"
+            # lookup_contract_id always prints the URL on line 1, and the
+            # numeric contract_id on line 2 if it succeeded (subshell vars
+            # can't propagate back, so we communicate via stdout).
+            local lookup_url="" cid=""
+            # Both reads are tolerant: lookup_contract_id may exit early with
+            # no output if config is missing.
+            {
+                read -r lookup_url || lookup_url=""
+                read -r cid        || cid=""
+            } < <(lookup_contract_id "$uuid")
+
+            if [ -n "$cid" ]; then
+                say "✓ contract_id:   $cid"
+                printf '{"contract_uuid":"%s","contract_id":%s}\n' "$uuid" "$cid" > .psy-deploy
+            else
+                # Lookup failed/timed out — put the GET URL into contract_id
+                # so the user can curl it manually later.
+                printf '{"contract_uuid":"%s","contract_id":"%s"}\n' \
+                    "$uuid" "${lookup_url:-unknown}" > .psy-deploy
+            fi
+            say "  saved to .psy-deploy"
+        else
+            warn "deploy succeeded but no contract uuid line found in output"
+        fi
+    fi
+
+    rm -f "$log"
+    exit "$rc"
+}
+
+# Resolve api_services_url from $RPC_CONFIG, then GET /v1/get/contract?contract_uuid=<uuid>
+# and pull contract_id from the JSON response. Prints the id on stdout or
+# nothing on failure (always returns 0 to keep deploy non-fatal).
+lookup_contract_id() {
+    local uuid=$1
+    local cfg=${RPC_CONFIG:-$PSY_HOME/config.json}
+    [ -f "$cfg" ] || return 0
+    command -v python3 >/dev/null 2>&1 || return 0
+    command -v curl >/dev/null 2>&1 || return 0
+
+    local default_net
+    default_net=$(settings_get default_network)
+
+    # Returns "<status>\t<url>" so the caller can warn on silent fallback.
+    local lookup_out status service_url
+    lookup_out=$(python3 - "$cfg" "${default_net:-}" <<'PY' 2>/dev/null
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+nets = cfg.get("networks", {})
+if not nets:
+    sys.exit(0)
+preferred = sys.argv[2]
+net_name = None
+if preferred and preferred in nets:
+    net_name, net = preferred, nets[preferred]
+    status = "matched"
+else:
+    net_name, net = next(iter(nets.items()))
+    status = "fallback" if preferred else "default"
+urls = net.get("api_services_url") or []
+url = urls[0] if isinstance(urls, list) and urls else (urls if isinstance(urls, str) else "")
+if url:
+    print(f"{status}\t{net_name}\t{url}")
+PY
+)
+    if [ -z "$lookup_out" ]; then
+        printf 'psyup: warning: no api_services_url in %s\n' "$cfg" >&2
+        return 0
+    fi
+
+    status=$(printf '%s' "$lookup_out" | cut -f1)
+    local picked_net
+    picked_net=$(printf '%s' "$lookup_out" | cut -f2)
+    service_url=$(printf '%s' "$lookup_out" | cut -f3)
+
+    if [ "$status" = "fallback" ]; then
+        printf "psyup: warning: settings.toml default_network='%s' not found in %s\n" "$default_net" "$cfg" >&2
+        printf "psyup:   falling back to network '%s' — update settings.toml to suppress this\n" "$picked_net" >&2
+    fi
+
+    local url="$service_url/api/v1/transaction/hash/$uuid"
+
+    # ALWAYS print the URL first on stdout — the caller uses it on failure
+    # to record the GET URL in .psy-deploy. cid (if any) goes on line 2.
+    printf '%s\n' "$url"
+
+    local attempts=30 cid="" resp i parse_err
+    printf 'psyup:   polling %s\n' "$url" >&2
+    printf 'psyup:   (up to %d attempts, 1s apart) ' "$attempts" >&2
+
+    for i in $(seq 1 "$attempts"); do
+        # Use -w "%{http_code}" so we can distinguish "no response" from "200
+        # with unexpected payload". We capture both body and status.
+        resp=$(curl -sL --max-time 5 "$url" 2>/dev/null) || resp=""
+        if [ -n "$resp" ]; then
+            cid=$(printf '%s' "$resp" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+data = d.get("data") if isinstance(d, dict) else None
+if not isinstance(data, dict):
+    sys.exit(0)
+if data.get("status") != "included":
+    sys.exit(0)
+result = data.get("result") or {}
+cid = result.get("contract_id")
+if cid is not None:
+    print(cid)
+' 2>/dev/null)
+        fi
+        if [ -n "$cid" ]; then
+            printf ' ✓ (%d/%d)\n' "$i" "$attempts" >&2
+            printf '%s\n' "$cid"
+            return 0
+        fi
+        printf '.' >&2
+        [ "$i" -lt "$attempts" ] && sleep 1
+    done
+
+    # Dump the last response so the user can see WHY parsing failed
+    # (or why the server isn't returning status="included" yet).
+    printf ' ✗ gave up after %d attempts\n' "$attempts" >&2
+    if [ -n "$resp" ]; then
+        printf 'psyup:   last response was:\n%s\n' "$resp" >&2
+    else
+        printf 'psyup:   no response received (network / server unreachable)\n' >&2
+    fi
+    return 0
 }

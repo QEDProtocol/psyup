@@ -33,6 +33,11 @@ EOF
 cat > "$PSY_HOME/toolchains/psy-0.0.0/bin/psy_user_cli" <<'EOF'
 #!/usr/bin/env bash
 echo "psy_user_cli invoked: $* RPC_CONFIG=${RPC_CONFIG:-unset}"
+if [ "$1" = "deploy-contract" ]; then
+    # Mimic the real deploy_contract.rs:68 log line so cmd_deploy's uuid
+    # extractor has something to match.
+    echo "client_prover/psy_cli/psy_user_cli/src/subcommand/deploy_contract.rs:68: contract deployed: 44684652986c3dc870aa15812544b2b1701a0c16cc2b97281ae6cc9aa4b729de"
+fi
 EOF
 # The other four binaries just exist to verify install symlinks them all.
 for b in psy_worker_cli psy_node_cli psy_dev_cli psy_relayer_cli; do
@@ -144,13 +149,55 @@ echo "$override_out" | grep -q -- '--contract-name=CustomRef' \
 echo "$override_out" | grep -q 'detected contract:' \
     && { echo "FAIL: should not auto-detect when user passed --contract-name"; exit 1; } || true
 
-# 7. deploy passes through to psy_user_cli with RPC_CONFIG exported
+# 7a. deploy passes through to psy_user_cli with user-supplied args
 out=$("$repo_root/psyup" deploy --private-key 0xdead --contract-path build/main.psyc 2>&1)
 echo "$out" | grep -q 'psy_user_cli invoked: deploy-contract --is-deploy' \
     || { echo "FAIL: deploy didn't invoke psy_user_cli correctly"; echo "$out"; exit 1; }
 echo "$out" | grep -q "RPC_CONFIG=$PSY_HOME/config.json" \
     || { echo "FAIL: deploy didn't export RPC_CONFIG"; echo "$out"; exit 1; }
-echo "$out" | grep -q -- "--private-key 0xdead" || { echo "FAIL: passthrough lost"; exit 1; }
+echo "$out" | grep -q -- "--private-key 0xdead" || { echo "FAIL: --private-key passthrough lost"; exit 1; }
+echo "$out" | grep -q -- "--contract-path build/main.psyc" \
+    || { echo "FAIL: --contract-path passthrough lost"; exit 1; }
+
+# 7b. auto-fill --contract-path from target/<pkg>.json; PRIVATE_KEY just env-forwarded
+mkdir -p target
+echo '{}' > target/token.json
+cat > Dargo.toml <<'EOF'
+[package]
+name = "token"
+type = "bin"
+EOF
+out=$(PRIVATE_KEY=0xbeef "$repo_root/psyup" deploy 2>&1)
+echo "$out" | grep -q -- "--contract-path target/token.json" \
+    || { echo "FAIL: --contract-path not auto-filled from target/"; echo "$out"; exit 1; }
+# PRIVATE_KEY is read natively by psy_user_cli via clap env — psyup should NOT
+# rewrite it into a --private-key flag.
+echo "$out" | grep -q -- "--private-key" \
+    && { echo "FAIL: psyup should leave PRIVATE_KEY env alone, not synthesize --private-key"; exit 1; } || true
+
+# 7c. user-supplied --contract-path overrides auto-fill
+out=$(PRIVATE_KEY=0xbeef "$repo_root/psyup" deploy --contract-path other.json 2>&1)
+echo "$out" | grep -q -- "--contract-path other.json" \
+    || { echo "FAIL: user-supplied --contract-path lost"; exit 1; }
+echo "$out" | grep -q "using --contract-path=target/token.json" \
+    && { echo "FAIL: should not auto-fill --contract-path when user passes it"; exit 1; } || true
+
+# 7d. successful deploy extracts contract_uuid and writes .psy-deploy
+out=$("$repo_root/psyup" deploy 2>&1)
+echo "$out" | grep -q '✓ contract_uuid: 44684652986c3dc870aa15812544b2b1701a0c16cc2b97281ae6cc9aa4b729de' \
+    || { echo "FAIL: contract_uuid not extracted"; echo "$out"; exit 1; }
+[ -f .psy-deploy ] || { echo "FAIL: .psy-deploy not written"; exit 1; }
+grep -q '"contract_uuid":"44684652986c3dc870aa15812544b2b1701a0c16cc2b97281ae6cc9aa4b729de"' .psy-deploy \
+    || { echo "FAIL: .psy-deploy content wrong"; cat .psy-deploy; exit 1; }
+rm -f .psy-deploy
+
+# 7e. missing artifact errors out (no target/, no <pkg>.json, no build/<pkg>.json)
+rm -rf target build
+rm -f token.json
+if "$repo_root/psyup" deploy 2>/dev/null; then
+    echo "FAIL: deploy should error when no compiled artifact exists"
+    exit 1
+fi
 
 # 8. build error when no manifest
 cd "$work"
