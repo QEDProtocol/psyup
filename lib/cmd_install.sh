@@ -15,8 +15,10 @@ current_version() {
 }
 
 install_toolchain() {
-    local version=$1 triple
+    local version=$1 triple default_network
     triple=$(detect_triple)
+    default_network=${PSYUP_DEFAULT_NETWORK:-$(settings_get default_network)}
+    [ -n "$default_network" ] || default_network=localhost
     # PSYUP_RELEASE_URL overrides the release source (any URL curl supports:
     # https://, file://, etc). Useful for local dist/ testing or mirrors.
     local base="${PSYUP_RELEASE_URL:-https://github.com/${PSYUP_TOOLCHAIN_REPO}/releases/download/v${version}}"
@@ -50,34 +52,26 @@ install_toolchain() {
         ln -sf "$b" "$PSY_HOME/bin/$(basename "$b")"
     done
 
-    # Update active version (rewrite settings.toml's `active = "..."`).
-    local s="$PSY_HOME/settings.toml"
-    if [ -f "$s" ] && grep -q '^active[[:space:]]*=' "$s"; then
-        # portable in-place edit
-        local tmpf
-        tmpf=$(mktemp)
-        awk -v v="$version" '
-            /^active[[:space:]]*=/ { print "active = \"" v "\""; next }
-            { print }
-        ' "$s" > "$tmpf" && mv "$tmpf" "$s"
-    else
-        printf 'active = "%s"\n' "$version" >> "$s"
-    fi
+    update_settings "$version" "$default_network"
 
     rm -rf "$tmp"
 
-    write_dargo_std_path "$version"
+    write_env_paths "$version" "$default_network"
 
     say "installed PSY toolchain $version"
 }
 
-# Rewrite the DARGO_STD_PATH line in ~/.psy/env to point at the given
-# toolchain's bundled std.psy. The toolchain tarball is expected to ship
-# psy-std at <toolchain>/lib/psy-std/std.psy (see README).
-write_dargo_std_path() {
+# Rewrite managed lines in ~/.psy/env to point at files installed from the
+# active toolchain. The toolchain tarball is expected to ship psy-std at
+# <toolchain>/lib/psy-std/std.psy and config.json at the toolchain root.
+write_env_paths() {
     local version=$1
+    local default_network=$2
     local std_path="$PSY_HOME/toolchains/psy-${version}/lib/psy-std/std.psy"
+    local toolchain_config="$PSY_HOME/toolchains/psy-${version}/config.json"
+    local rpc_config="$PSY_HOME/config.json"
     local env_file="$PSY_HOME/env"
+    local have_rpc_config=0
 
     [ -f "$env_file" ] || return 0
 
@@ -85,18 +79,121 @@ write_dargo_std_path() {
         warn "psy-std not found at $std_path"
         warn "  the toolchain release should ship lib/psy-std/std.psy"
         warn "  builds will fall back to git-cloning std (slow)"
-        return 0
+    fi
+
+    if [ -f "$toolchain_config" ]; then
+        cp "$toolchain_config" "$rpc_config"
+        set_config_default_network "$rpc_config" "$default_network"
+        have_rpc_config=1
+    else
+        warn "config.json not found at $toolchain_config"
+        warn "  the toolchain release should ship config.json"
+        warn "  deploy will require --rpc-config or RPC_CONFIG"
     fi
 
     local tmpf
     tmpf=$(mktemp)
-    awk -v p="$std_path" '
-        /^# DARGO_STD_PATH=__PSYUP_MANAGED__/ { print "export DARGO_STD_PATH=\"" p "\""; next }
-        /^export DARGO_STD_PATH=/ { print "export DARGO_STD_PATH=\"" p "\""; next }
+    awk -v std="$std_path" -v rpc="$rpc_config" -v have_rpc="$have_rpc_config" '
+        /^# DARGO_STD_PATH=__PSYUP_MANAGED__/ { seen_std=1; print "export DARGO_STD_PATH=\"" std "\""; next }
+        /^export DARGO_STD_PATH=/ { seen_std=1; print "export DARGO_STD_PATH=\"" std "\""; next }
+        /^# RPC_CONFIG=__PSYUP_MANAGED__/ {
+            seen_rpc=1
+            if (have_rpc == 1) print "export RPC_CONFIG=\"" rpc "\""
+            else print
+            next
+        }
+        /^export RPC_CONFIG=/ {
+            seen_rpc=1
+            if (have_rpc == 1) print "export RPC_CONFIG=\"" rpc "\""
+            else print
+            next
+        }
         { print }
+        END {
+            if (seen_std != 1) print "export DARGO_STD_PATH=\"" std "\""
+            if (have_rpc == 1 && seen_rpc != 1) print "export RPC_CONFIG=\"" rpc "\""
+        }
     ' "$env_file" > "$tmpf" && mv "$tmpf" "$env_file"
 
     say "DARGO_STD_PATH -> $std_path"
+    if [ "$have_rpc_config" -eq 1 ]; then
+        say "RPC_CONFIG -> $rpc_config"
+    fi
+}
+
+update_settings() {
+    local version=$1 default_network=$2 settings="$PSY_HOME/settings.toml"
+    local tmpf
+
+    if [ ! -f "$settings" ]; then
+        cat > "$settings" <<EOF
+# psyup user settings
+active = "$version"
+default_network = "$default_network"
+EOF
+        return 0
+    fi
+
+    tmpf=$(mktemp)
+    awk -v v="$version" -v n="$default_network" '
+        /^active[[:space:]]*=/ {
+            print "active = \"" v "\""
+            seen_active=1
+            next
+        }
+        /^default_network[[:space:]]*=/ {
+            print "default_network = \"" n "\""
+            seen_network=1
+            next
+        }
+        { print }
+        END {
+            if (seen_active != 1) print "active = \"" v "\""
+            if (seen_network != 1) print "default_network = \"" n "\""
+        }
+    ' "$settings" > "$tmpf" && mv "$tmpf" "$settings"
+}
+
+set_config_default_network() {
+    local config=$1 default_network=$2 tmpf
+    tmpf=$(mktemp)
+    awk -v n="$default_network" '
+        function count_char(s, c,    i, total) {
+            total = 0
+            for (i = 1; i <= length(s); i++) {
+                if (substr(s, i, 1) == c) total++
+            }
+            return total
+        }
+        function flush_prev() {
+            if (prev != "") {
+                print prev
+                prev = ""
+            }
+        }
+        /^[[:space:]]*"defaultNetwork"[[:space:]]*:/ {
+            comma = ($0 ~ /,[[:space:]]*$/) ? "," : ""
+            indent = $0
+            sub(/"defaultNetwork".*$/, "", indent)
+            flush_prev()
+            print indent "\"defaultNetwork\": \"" n "\"" comma
+            seen=1
+            depth += count_char($0, "{") - count_char($0, "}")
+            next
+        }
+        /^[[:space:]]*}[[:space:]]*$/ && seen != 1 && depth == 1 {
+            if (prev != "" && prev !~ /,[[:space:]]*$/) prev = prev ","
+            flush_prev()
+            print "  \"defaultNetwork\": \"" n "\""
+            seen=1
+        }
+        {
+            flush_prev()
+            prev = $0
+            depth += count_char($0, "{") - count_char($0, "}")
+        }
+        END { flush_prev() }
+    ' "$config" > "$tmpf" && mv "$tmpf" "$config"
 }
 
 cmd_install() {

@@ -36,7 +36,8 @@ No manual cloning, no source builds, no chasing dependencies.
 ├── lib/            # psyup's own bash modules (installed by install.sh)
 ├── templates/      # cache (reserved)
 ├── env             # source this to add ~/.psy/bin to PATH
-└── settings.toml   # active version, default RPC, networks
+├── config.json     # RPC network config consumed by psy_user_cli
+└── settings.toml   # active version, default network
 ```
 
 ## Repository contract
@@ -69,20 +70,26 @@ Each tarball expands to:
 │   ├── psy_node_cli       # run coordinator / realm processors
 │   ├── psy_dev_cli        # dev/debug utilities (read backups, etc.)
 │   └── psy_relayer_cli    # bridge relayer
-└── lib/
-    └── psy-std/           # bundled stdlib (must contain std.psy + prelude.psy)
-        ├── std.psy
-        ├── prelude.psy
-        └── ...
+├── lib/
+│   └── psy-std/           # bundled stdlib (must contain std.psy + prelude.psy)
+│       ├── std.psy
+│       ├── prelude.psy
+│       └── ...
+└── config.json            # RPC network config
 ```
 
 `psyup install` symlinks every file in `bin/` into `~/.psy/bin/`, so all six
 binaries are on PATH after install.
 
-After `psyup install`, `~/.psy/env` is rewritten to
-`export DARGO_STD_PATH=<toolchain-root>/lib/psy-std/std.psy` so the compiler
-can find the stdlib without falling back to a git clone. `psyup build` also
-sets this defensively in case the shell didn't source `~/.psy/env`.
+After `psyup install`, `~/.psy/env` is rewritten to export
+`DARGO_STD_PATH=<toolchain-root>/lib/psy-std/std.psy` so the compiler can find
+the stdlib without falling back to a git clone. It also installs the
+toolchain's `config.json` to `~/.psy/config.json` and exports
+`RPC_CONFIG=~/.psy/config.json` for `psy_user_cli`. `psyup build` also sets
+`DARGO_STD_PATH` defensively in case the shell didn't source `~/.psy/env`.
+Set `PSYUP_DEFAULT_NETWORK=<name>` before running `install.sh` or
+`psyup install` to choose the default network; otherwise it defaults to
+`localhost`.
 
 ### `logere/psy-template`
 

@@ -9,6 +9,7 @@ trap 'rm -rf "$work"' EXIT
 
 export PSY_HOME="$work/.psy"
 export PATH="$work/bin:$PATH"
+unset DARGO_STD_PATH RPC_CONFIG
 mkdir -p "$work/bin" "$PSY_HOME"
 
 # 1. dispatcher loads
@@ -31,7 +32,7 @@ echo "dargo 0.0.0"
 EOF
 cat > "$PSY_HOME/toolchains/psy-0.0.0/bin/psy_user_cli" <<'EOF'
 #!/usr/bin/env bash
-echo "psy_user_cli invoked: $*"
+echo "psy_user_cli invoked: $* RPC_CONFIG=${RPC_CONFIG:-unset}"
 EOF
 # The other four binaries just exist to verify install symlinks them all.
 for b in psy_worker_cli psy_node_cli psy_dev_cli psy_relayer_cli; do
@@ -50,13 +51,9 @@ export PATH="$PSY_HOME/bin:/usr/bin:/bin"
 
 cat > "$PSY_HOME/settings.toml" <<EOF
 active = "0.0.0"
-default_network = "local"
-
-[networks.local]
-rpc_config = "$PSY_HOME/networks/local.json"
+default_network = "localhost"
 EOF
-mkdir -p "$PSY_HOME/networks"
-echo '{}' > "$PSY_HOME/networks/local.json"
+echo '{}' > "$PSY_HOME/config.json"
 
 # 4. build a local fake multi-template tarball (mirrors QEDProtocol/psy-template
 #    layout: top-level dirs are templates), serve via file:// URL.
@@ -147,10 +144,12 @@ echo "$override_out" | grep -q -- '--contract-name=CustomRef' \
 echo "$override_out" | grep -q 'detected contract:' \
     && { echo "FAIL: should not auto-detect when user passed --contract-name"; exit 1; } || true
 
-# 7. deploy passes through to psy_user_cli with auto-filled --rpc-config
+# 7. deploy passes through to psy_user_cli with RPC_CONFIG exported
 out=$("$repo_root/psyup" deploy --private-key 0xdead --contract-path build/main.psyc 2>&1)
-echo "$out" | grep -q 'psy_user_cli invoked: deploy-contract --is-deploy --rpc-config' \
+echo "$out" | grep -q 'psy_user_cli invoked: deploy-contract --is-deploy' \
     || { echo "FAIL: deploy didn't invoke psy_user_cli correctly"; echo "$out"; exit 1; }
+echo "$out" | grep -q "RPC_CONFIG=$PSY_HOME/config.json" \
+    || { echo "FAIL: deploy didn't export RPC_CONFIG"; echo "$out"; exit 1; }
 echo "$out" | grep -q -- "--private-key 0xdead" || { echo "FAIL: passthrough lost"; exit 1; }
 
 # 8. build error when no manifest
@@ -180,13 +179,11 @@ export PATH="$HOME/.psy/bin:$PATH"
 EOF
 cat > "$install_home/settings.toml" <<EOF
 active = ""
-default_network = "local"
-
-[networks.local]
-rpc_config = "$install_home/networks/local.json"
+default_network = "localhost"
 EOF
 
 PSY_HOME="$install_home" \
+PSYUP_DEFAULT_NETWORK="staging" \
 PSYUP_RELEASE_URL="file://$repo_root/dist" \
     "$repo_root/psyup" install 0.9.9
 
@@ -197,6 +194,8 @@ PSYUP_RELEASE_URL="file://$repo_root/dist" \
     || { echo "FAIL: dargo stub not present / not executable"; exit 1; }
 [ -f "$install_home/toolchains/psy-0.9.9/lib/psy-std/std.psy" ] \
     || { echo "FAIL: psy-std not bundled"; exit 1; }
+[ -f "$install_home/config.json" ] \
+    || { echo "FAIL: config.json not installed into PSY_HOME"; exit 1; }
 for b in dargo psy_user_cli psy_worker_cli psy_node_cli psy_dev_cli psy_relayer_cli; do
     [ -L "$install_home/bin/$b" ] || { echo "FAIL: $b not symlinked into ~/.psy/bin"; exit 1; }
 done
@@ -208,9 +207,17 @@ done
 # settings.toml should now have active = "0.9.9"
 grep -q 'active = "0.9.9"' "$install_home/settings.toml" \
     || { echo "FAIL: settings.toml active not updated"; cat "$install_home/settings.toml"; exit 1; }
+grep -q 'default_network = "staging"' "$install_home/settings.toml" \
+    || { echo "FAIL: settings.toml default_network not updated"; cat "$install_home/settings.toml"; exit 1; }
+grep -q 'rpc_config' "$install_home/settings.toml" \
+    && { echo "FAIL: settings.toml should not contain rpc_config"; cat "$install_home/settings.toml"; exit 1; } || true
+grep -q '"defaultNetwork": "staging"' "$install_home/config.json" \
+    || { echo "FAIL: config.json defaultNetwork not updated"; cat "$install_home/config.json"; exit 1; }
 
 # env file should have DARGO_STD_PATH pointing at the installed std
 grep -q "DARGO_STD_PATH=.*psy-0.9.9/lib/psy-std/std.psy" "$install_home/env" \
     || { echo "FAIL: ~/.psy/env DARGO_STD_PATH not rewritten"; cat "$install_home/env"; exit 1; }
+grep -q "RPC_CONFIG=\"$install_home/config.json\"" "$install_home/env" \
+    || { echo "FAIL: ~/.psy/env RPC_CONFIG not rewritten"; cat "$install_home/env"; exit 1; }
 
 echo "OK: all smoke checks passed"

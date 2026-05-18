@@ -6,6 +6,7 @@ set -eu
 PSYUP_REPO="${PSYUP_REPO:-QEDProtocol/psyup}"
 PSYUP_BRANCH="${PSYUP_BRANCH:-feat/parth-generic-v1}"
 PSY_HOME="${PSY_HOME:-$HOME/.psy}"
+PSYUP_DEFAULT_NETWORK="${PSYUP_DEFAULT_NETWORK:-localhost}"
 RAW_BASE="https://raw.githubusercontent.com/${PSYUP_REPO}/${PSYUP_BRANCH}"
 
 say()  { printf 'psyup: %s\n' "$*"; }
@@ -60,21 +61,31 @@ case ":${PATH}:" in
     *) export PATH="$HOME/.psy/bin:$PATH" ;;
 esac
 
-# DARGO_STD_PATH is rewritten by `psyup install` to point at the
-# active toolchain's lib/psy-std/std.psy. Leave the marker line as-is.
+# DARGO_STD_PATH and RPC_CONFIG are rewritten by `psyup install` to point at
+# files installed from the active toolchain. Leave the marker lines as-is.
 # DARGO_STD_PATH=__PSYUP_MANAGED__
+# RPC_CONFIG=__PSYUP_MANAGED__
 EOF
 
 if [ ! -f "$PSY_HOME/settings.toml" ]; then
     cat > "$PSY_HOME/settings.toml" <<EOF
 # psyup user settings
 active = ""
-default_network = "local"
-
-[networks.local]
-# Path to the rpc config.json consumed by psy_user_cli (--rpc-config).
-rpc_config = "$HOME/.psy/networks/local.json"
+default_network = "$PSYUP_DEFAULT_NETWORK"
 EOF
+else
+    tmp_settings=$(mktemp)
+    awk -v n="$PSYUP_DEFAULT_NETWORK" '
+        /^default_network[[:space:]]*=/ {
+            print "default_network = \"" n "\""
+            seen_network=1
+            next
+        }
+        { print }
+        END {
+            if (seen_network != 1) print "default_network = \"" n "\""
+        }
+    ' "$PSY_HOME/settings.toml" > "$tmp_settings" && mv "$tmp_settings" "$PSY_HOME/settings.toml"
 fi
 
 # Append source line to shell rc (idempotent).

@@ -1,0 +1,109 @@
+{
+  "networks": {
+    "localhost": {
+      "magic": "0x1337CF514544CF69",
+      "users_per_realm": 1048576,
+      "global_user_tree_height": 32,
+      "realm_user_tree_height": 20,
+      "group_realm_height": 1,
+      "realm_configs": [
+        {
+          "id": 0,
+          "rpc_url": [
+            "http://127.0.0.1:13380"
+          ]
+        },
+        {
+          "id": 1,
+          "rpc_url": [
+            "http://127.0.0.1:13390"
+          ]
+        }
+      ],
+      "coordinator_configs": [
+        {
+          "id": 0,
+          "rpc_url": [
+            "http://127.0.0.1:1337"
+          ]
+        }
+      ],
+      "prove_proxy_url": [
+        "http://127.0.0.1:9999"
+      ],
+      "api_services_url": [
+        "http://127.0.0.1:3000"
+      ],
+      "whitelist": {
+        "enabled": true,
+        "secp256k1": [
+          "0xc8675C6550aCcBce516B6873411fE220BE1589ee",
+          "0x76E63ce78D1e02A0CeF17EAF497918b2c040163F",
+          "0x80c15EEA69C47244ddAC59E4A8a23d8cfe83566E"
+        ]
+      },
+      "native_currency": "0",
+      "native_currency_decimal": 9,
+      "native_currency_name": "PSY",
+      "fees": {
+        "register_user_fee": 0,
+        "deploy_contract_fee": 0,
+        "guta_fee": 5000000000,
+        "da_fee": 1000
+      }
+    },
+    "staging": {
+      "magic": "0x1337CF514544CF69",
+      "users_per_realm": 1048576,
+      "global_user_tree_height": 32,
+      "realm_user_tree_height": 20,
+      "group_realm_height": 1,
+      "realm_configs": [
+        {
+          "id": 0,
+          "rpc_url": [
+            "https://realm0-stg.devruntime.xyz"
+          ]
+        },
+        {
+          "id": 1,
+          "rpc_url": [
+            "https://realm1-stg.devruntime.xyz"
+          ]
+        }
+      ],
+      "coordinator_configs": [
+        {
+          "id": 0,
+          "rpc_url": [
+            "https://coordinator-stg.devruntime.xyz"
+          ]
+        }
+      ],
+      "prove_proxy_url": [
+        "https://prove-stg.devruntime.xyz"
+      ],
+      "api_services_url": [
+        "https://psy-services-stg.devruntime.xyz"
+      ],
+      "whitelist": {
+        "enabled": true,
+        "secp256k1": [
+          "0xc8675C6550aCcBce516B6873411fE220BE1589ee",
+          "0x76E63ce78D1e02A0CeF17EAF497918b2c040163F",
+          "0x80c15EEA69C47244ddAC59E4A8a23d8cfe83566E"
+        ]
+      },
+      "native_currency": "0",
+      "native_currency_decimal": 9,
+      "native_currency_name": "PSY",
+      "fees": {
+        "register_user_fee": 0,
+        "deploy_contract_fee": 0,
+        "guta_fee": 5000000000,
+        "da_fee": 1000
+      }
+    }
+  },
+  "defaultNetwork": "localhost"
+}
