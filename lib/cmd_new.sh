@@ -84,8 +84,12 @@ cmd_new() {
     mv "$source_dir" "$name"
 
     # Rewrite project name in any top-level manifests we find.
-    rewrite_name_field "$name/Dargo.toml" "$name"
-    rewrite_name_field "$name/contract/Dargo.toml" "$name"
+    # dargo's CrateName blacklists '-', so we use an identifier-safe variant
+    # for Dargo.toml. package.json is fine with hyphens.
+    local crate_name
+    crate_name=$(printf '%s' "$name" | tr '-' '_')
+    rewrite_name_field "$name/Dargo.toml" "$crate_name"
+    rewrite_name_field "$name/contract/Dargo.toml" "$crate_name"
     rewrite_package_json_name "$name/package.json" "$name"
 
     if command -v git >/dev/null 2>&1; then

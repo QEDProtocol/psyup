@@ -22,9 +22,9 @@ mkdir -p "$PSY_HOME/toolchains/psy-0.0.0/bin" \
          "$PSY_HOME/toolchains/psy-0.0.0/lib/psy-std"
 cat > "$PSY_HOME/toolchains/psy-0.0.0/bin/dargo" <<'EOF'
 #!/usr/bin/env bash
-if [ "$1" = "build" ]; then
+if [ "$1" = "compile" ]; then
     mkdir -p build && : > build/main.psyc
-    echo "dargo: built build/main.psyc DARGO_STD_PATH=${DARGO_STD_PATH:-unset}"
+    echo "dargo: built build/main.psyc DARGO_STD_PATH=${DARGO_STD_PATH:-unset} args=$*"
     exit 0
 fi
 echo "dargo 0.0.0"
@@ -72,7 +72,15 @@ cat > "$boiler/dapp/contract/Dargo.toml" <<'EOF'
 name = "token"
 type = "bin"
 EOF
-echo "// hello psy" > "$boiler/dapp/contract/src/main.psy"
+cat > "$boiler/dapp/contract/src/main.psy" <<'EOF'
+use std::prelude::*;
+
+#[contract]
+#[derive(Storage)]
+pub struct PsyTokenContract {
+    pub balance: Felt,
+}
+EOF
 
 # contract/ template — contract-only
 cat > "$boiler/contract/Dargo.toml" <<'EOF'
@@ -111,13 +119,33 @@ grep -q 'name = "demo"' demo/contract/Dargo.toml \
 grep -q 'name = "demo3"' demo3/Dargo.toml \
     || { echo "FAIL: top-level Dargo.toml name not rewritten"; exit 1; }
 
-# 6. build — also asserts DARGO_STD_PATH gets auto-exported from settings.toml
+# 5d. project names with `-` are sanitized to `_` for Dargo.toml (dargo
+#     rejects '-' in CrateName), but kept as-is in package.json (npm allows it).
+"$repo_root/psyup" new my-app --template "file://$work/boiler.tar.gz#dapp"
+grep -q 'name = "my_app"' my-app/contract/Dargo.toml \
+    || { echo "FAIL: hyphen not sanitized in Dargo.toml"; cat my-app/contract/Dargo.toml; exit 1; }
+grep -q '"name": "my-app"' my-app/package.json \
+    || { echo "FAIL: hyphen should be preserved in package.json"; cat my-app/package.json; exit 1; }
+
+# 6. build — also asserts DARGO_STD_PATH gets auto-exported and
+#    --contract-name is auto-detected from #[contract] in main.psy.
 cd "$work/demo/contract"
 build_out=$("$repo_root/psyup" build)
 echo "$build_out" | grep -q 'dargo: built'
 echo "$build_out" | grep -q "DARGO_STD_PATH=$PSY_HOME/toolchains/psy-0.0.0/lib/psy-std/std.psy" \
     || { echo "FAIL: DARGO_STD_PATH not exported by cmd_build"; echo "$build_out"; exit 1; }
+echo "$build_out" | grep -q 'detected contract: PsyTokenContractRef' \
+    || { echo "FAIL: auto-detect of --contract-name"; echo "$build_out"; exit 1; }
+echo "$build_out" | grep -q -- '--contract-name=PsyTokenContractRef' \
+    || { echo "FAIL: --contract-name not passed to dargo"; echo "$build_out"; exit 1; }
 [ -f build/main.psyc ] || { echo "FAIL: build artifact missing"; exit 1; }
+
+# 6b. user-supplied --contract-name overrides auto-detection
+override_out=$("$repo_root/psyup" build --contract-name=CustomRef)
+echo "$override_out" | grep -q -- '--contract-name=CustomRef' \
+    || { echo "FAIL: user override of --contract-name"; echo "$override_out"; exit 1; }
+echo "$override_out" | grep -q 'detected contract:' \
+    && { echo "FAIL: should not auto-detect when user passed --contract-name"; exit 1; } || true
 
 # 7. deploy passes through to psy_user_cli with auto-filled --rpc-config
 out=$("$repo_root/psyup" deploy --private-key 0xdead --contract-path build/main.psyc 2>&1)
