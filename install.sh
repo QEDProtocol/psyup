@@ -52,6 +52,18 @@ chmod +x "$PSY_HOME/bin/psyup"
 for f in common.sh cmd_install.sh cmd_new.sh cmd_build.sh cmd_deploy.sh; do
     fetch "lib/$f" "$PSY_HOME/lib/$f"
 done
+fetch config.json "$PSY_HOME/config.json"
+tmp_config=$(mktemp)
+awk -v n="$PSYUP_DEFAULT_NETWORK" '
+    /^[[:space:]]*"defaultNetwork"[[:space:]]*:/ {
+        comma = ($0 ~ /,[[:space:]]*$/) ? "," : ""
+        indent = $0
+        sub(/"defaultNetwork".*$/, "", indent)
+        print indent "\"defaultNetwork\": \"" n "\"" comma
+        next
+    }
+    { print }
+' "$PSY_HOME/config.json" > "$tmp_config" && mv "$tmp_config" "$PSY_HOME/config.json"
 
 cat > "$PSY_HOME/env" <<'EOF'
 # psyup shell integration. source this file to add psyup to PATH
@@ -64,7 +76,7 @@ esac
 # DARGO_STD_PATH and RPC_CONFIG are rewritten by `psyup install` to point at
 # files installed from the active toolchain. Leave the marker lines as-is.
 # DARGO_STD_PATH=__PSYUP_MANAGED__
-# RPC_CONFIG=__PSYUP_MANAGED__
+export RPC_CONFIG="$HOME/.psy/config.json"
 EOF
 
 if [ ! -f "$PSY_HOME/settings.toml" ]; then

@@ -220,4 +220,41 @@ grep -q "DARGO_STD_PATH=.*psy-0.9.9/lib/psy-std/std.psy" "$install_home/env" \
 grep -q "RPC_CONFIG=\"$install_home/config.json\"" "$install_home/env" \
     || { echo "FAIL: ~/.psy/env RPC_CONFIG not rewritten"; cat "$install_home/env"; exit 1; }
 
+# 9b. If GitHub latest resolution is rate-limited, install falls back to 0.1.0.
+bash "$repo_root/packaging/make-fake-toolchain.sh" 0.1.0 >/dev/null
+fallback_home="$work/.psy-fallback"
+fake_path="$work/fake-path"
+mkdir -p "$fallback_home/bin" "$fallback_home/toolchains" "$fake_path"
+cat > "$fallback_home/env" <<'EOF'
+export PATH="$HOME/.psy/bin:$PATH"
+# DARGO_STD_PATH=__PSYUP_MANAGED__
+EOF
+cat > "$fallback_home/settings.toml" <<EOF
+active = ""
+default_network = "localhost"
+EOF
+cat > "$fake_path/curl" <<'EOF'
+#!/usr/bin/env bash
+for arg in "$@"; do
+    case "$arg" in
+        https://api.github.com/*)
+        echo '{"message":"API rate limit exceeded"}' >&2
+        exit 56
+        ;;
+    esac
+done
+exec /usr/bin/curl "$@"
+EOF
+chmod +x "$fake_path/curl"
+fallback_out=$(
+    PATH="$fake_path:/usr/bin:/bin" \
+    PSY_HOME="$fallback_home" \
+    PSYUP_RELEASE_URL="file://$repo_root/dist" \
+        "$repo_root/psyup" install latest 2>&1
+)
+echo "$fallback_out" | grep -q 'falling back to 0.1.0' \
+    || { echo "FAIL: latest fallback message missing"; echo "$fallback_out"; exit 1; }
+grep -q 'active = "0.1.0"' "$fallback_home/settings.toml" \
+    || { echo "FAIL: latest fallback did not install 0.1.0"; cat "$fallback_home/settings.toml"; exit 1; }
+
 echo "OK: all smoke checks passed"

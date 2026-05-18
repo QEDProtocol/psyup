@@ -3,9 +3,13 @@
 resolve_latest_version() {
     need curl
     local api="https://api.github.com/repos/${PSYUP_TOOLCHAIN_REPO}/releases/latest"
-    local tag
-    tag=$(curl -fsSL "$api" | awk -F'"' '/"tag_name":/ {print $4; exit}')
-    [ -n "$tag" ] || die "failed to resolve latest version from $api"
+    local tag fallback="${PSYUP_DEFAULT_VERSION:-0.1.0}"
+    tag=$(curl -fsSL "$api" 2>/dev/null | awk -F'"' '/"tag_name":/ {print $4; exit}') || tag=""
+    if [ -z "$tag" ]; then
+        warn "failed to resolve latest version from $api; falling back to $fallback"
+        printf '%s\n' "$fallback"
+        return 0
+    fi
     # strip leading v
     printf '%s\n' "${tag#v}"
 }
@@ -85,9 +89,12 @@ write_env_paths() {
         cp "$toolchain_config" "$rpc_config"
         set_config_default_network "$rpc_config" "$default_network"
         have_rpc_config=1
+    elif [ -f "$rpc_config" ]; then
+        set_config_default_network "$rpc_config" "$default_network"
+        have_rpc_config=1
     else
         warn "config.json not found at $toolchain_config"
-        warn "  the toolchain release should ship config.json"
+        warn "  the toolchain release should ship config.json or install.sh should install $rpc_config"
         warn "  deploy will require --rpc-config or RPC_CONFIG"
     fi
 
