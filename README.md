@@ -3,18 +3,40 @@
 One-shot installer + project scaffolder for the PSY smart-contract toolchain.
 Inspired by `rustup` / `foundryup`.
 
+## End-to-end quickstart
+
 ```sh
-curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/main/install.sh | sh
+# 1. Install psyup itself (pins the network to staging).
+curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/feat/parth-generic-v1/install.sh \
+  | PSYUP_DEFAULT_NETWORK=staging sh
 source ~/.psy/env
 
-psyup install            # download psyc + psy-cli
-psyup new my-token       # scaffold from the boilerplate
-cd my-token
-psyup build              # compile
-psyup deploy             # deploy to the configured network
+# 2. Pull the PSY toolchain (dargo + psy_user_cli + ...) for your platform.
+psyup install
+source ~/.psy/env
+
+# 3. Scaffold a new project from the dapp template.
+psyup new token-app
+
+# 4. Compile the contract.
+cd token-app/contract && psyup build
+
+# 5. Deploy.
+export PRIVATE_KEY=<your-hex-key>
+psyup deploy
+# → ✓ contract_uuid: …  ✓ contract_id: 7
+# (written to ./.psy-deploy)
+
+# 6. Launch the dApp frontend.
+cd ../                                  # back to token-app/
+pnpm install                            # or npm install
+echo "VITE_PSY_CONTRACT_ID=$(jq -r .contract_id contract/.psy-deploy)" > .env.local
+pnpm dev                                # http://localhost:5173
 ```
 
-No manual cloning, no source builds, no chasing dependencies.
+Open the page, install [psy-wallet](https://github.com/QEDProtocol/psy-wallet),
+connect, then mint / transfer / claim. No manual cloning, no source builds,
+no chasing dependencies.
 
 ## Commands
 
@@ -23,20 +45,20 @@ No manual cloning, no source builds, no chasing dependencies.
 | `psyup install [version]` | Download the PSY toolchain release for your platform, verify SHA256, symlink into `~/.psy/bin`. Defaults to `latest`. |
 | `psyup update` | Re-resolve `latest` and reinstall if newer. |
 | `psyup uninstall` | Remove `~/.psy` (asks first). |
-| `psyup new <name> [--template <git-url-or-owner/repo>]` | Download a template tarball, rename the project in `psy.toml`, optionally `git init`. |
-| `psyup build [args...]` | Run `psyc build` in the current project. |
-| `psyup deploy [--network N] [--rpc URL] [--key path]` | Run `psy-cli deploy` against the configured network. |
+| `psyup new <name> [--template <key\|owner/repo\|url>[#subdir]]` | Download a template tarball, rewrite project name in `Dargo.toml` / `package.json`, `git init`. Default template = `dapp`. |
+| `psyup build [args...]` | `dargo compile`, auto-detects `--contract-name` from `#[contract]` struct. |
+| `psyup deploy [args...]` | `psy_user_cli deploy-contract --is-deploy`. Auto-fills `--rpc-config`, `--contract-path`. Polls service for numeric `contract_id` and saves to `.psy-deploy`. |
 
 ## Layout
 
 ```
 ~/.psy/
 ├── bin/            # psyup + symlinks to active toolchain
-├── toolchains/     # versioned: psy-<ver>/bin/{psyc, psy-cli}
+├── toolchains/     # versioned: psy-<ver>/{bin/, lib/psy-std/, config.json}
 ├── lib/            # psyup's own bash modules (installed by install.sh)
-├── templates/      # cache (reserved)
-├── env             # source this to add ~/.psy/bin to PATH
-├── config.json     # RPC network config consumed by psy_user_cli
+├── templates/      # cache (reserved, not used yet)
+├── env             # source this to add ~/.psy/bin to PATH + set DARGO_STD_PATH + RPC_CONFIG
+├── config.json     # RPC network config consumed by psy_user_cli (--rpc-config)
 └── settings.toml   # active version, default network
 ```
 
