@@ -48,7 +48,7 @@
       "fees": {
         "register_user_fee": 0,
         "deploy_contract_fee": 0,
-        "guta_fee": 5000000000,
+        "guta_fee": 1000000000,
         "da_fee": 1000
       }
     },
@@ -100,7 +100,7 @@
       "fees": {
         "register_user_fee": 0,
         "deploy_contract_fee": 0,
-        "guta_fee": 5000000000,
+        "guta_fee": 1000000000,
         "da_fee": 1000
       }
     }
