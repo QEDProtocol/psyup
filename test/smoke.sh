@@ -252,11 +252,11 @@ if "$repo_root/psyup" build 2>/dev/null; then
     exit 1
 fi
 
-# 9. Full `psyup install` flow against the fake dist/ tarballs.
-#    Builds dist/ first, then points PSYUP_RELEASE_URL at file:// and runs install.
+# 9. Full `psyup install` flow against fake release tarballs in tmp.
 echo "--- section 9: install via dist/ tarballs ---"
-bash "$repo_root/packaging/make-fake-toolchain.sh" 0.9.9 >/dev/null
-[ -f "$repo_root/dist/SHA256SUMS" ] || { echo "FAIL: make-fake-toolchain.sh did not produce SHA256SUMS"; exit 1; }
+fake_release="$work/fake-release"
+PSYUP_FAKE_TOOLCHAIN_DIR="$fake_release" bash "$repo_root/packaging/make-fake-toolchain.sh" 0.9.9 >/dev/null
+[ -f "$fake_release/SHA256SUMS" ] || { echo "FAIL: make-fake-toolchain.sh did not produce SHA256SUMS"; exit 1; }
 
 # Use a fresh PSY_HOME so we exercise install from a clean slate.
 install_home="$work/.psy-install"
@@ -277,7 +277,7 @@ EOF
 
 PSY_HOME="$install_home" \
 PSYUP_DEFAULT_NETWORK="staging" \
-PSYUP_RELEASE_URL="file://$repo_root/dist" \
+PSYUP_RELEASE_URL="file://$fake_release" \
     "$repo_root/psyup" install 0.9.9
 
 # Verify the install landed:
@@ -314,7 +314,7 @@ grep -q "RPC_CONFIG=\"$install_home/config.json\"" "$install_home/env" \
     || { echo "FAIL: ~/.psy/env RPC_CONFIG not rewritten"; cat "$install_home/env"; exit 1; }
 
 # 9b. If GitHub latest resolution is rate-limited, install falls back to 0.1.0.
-bash "$repo_root/packaging/make-fake-toolchain.sh" 0.1.0 >/dev/null
+PSYUP_FAKE_TOOLCHAIN_DIR="$fake_release" bash "$repo_root/packaging/make-fake-toolchain.sh" 0.1.0 >/dev/null
 fallback_home="$work/.psy-fallback"
 fake_path="$work/fake-path"
 mkdir -p "$fallback_home/bin" "$fallback_home/toolchains" "$fake_path"
@@ -342,7 +342,7 @@ chmod +x "$fake_path/curl"
 fallback_out=$(
     PATH="$fake_path:/usr/bin:/bin" \
     PSY_HOME="$fallback_home" \
-    PSYUP_RELEASE_URL="file://$repo_root/dist" \
+    PSYUP_RELEASE_URL="file://$fake_release" \
         "$repo_root/psyup" install latest 2>&1
 )
 echo "$fallback_out" | grep -q 'falling back to 0.1.0' \
