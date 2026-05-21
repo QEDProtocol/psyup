@@ -47,6 +47,13 @@ echo "dargo 0.0.0"
 EOF
 cat > "$PSY_HOME/toolchains/psy-0.0.0/bin/psy_user_cli" <<'EOF'
 #!/usr/bin/env bash
+if [ "$1" = "deploy-contract" ] && [ "${2:-}" = "--help" ]; then
+    echo "Usage: psy_user_cli deploy-contract [OPTIONS]"
+    if [ -z "${PSY_USER_CLI_NO_ABI_HELP:-}" ]; then
+        echo "      --abi-path <ABI_PATH>"
+    fi
+    exit 0
+fi
 echo "psy_user_cli invoked: $* RPC_CONFIG=${RPC_CONFIG:-unset}"
 if [ "$1" = "deploy-contract" ]; then
     # Mimic the real deploy_contract.rs:68 log line so cmd_deploy's uuid
@@ -178,10 +185,13 @@ echo "$out" | grep -q "RPC_CONFIG=$PSY_HOME/config.json" \
 echo "$out" | grep -q -- "--private-key 0xdead" || { echo "FAIL: --private-key passthrough lost"; exit 1; }
 echo "$out" | grep -q -- "--contract-path build/main.psyc" \
     || { echo "FAIL: --contract-path passthrough lost"; exit 1; }
+echo "$out" | grep -q -- "--abi-path target/demo.abi.json" \
+    || { echo "FAIL: --abi-path not auto-filled from build output"; echo "$out"; exit 1; }
 
 # 7b. auto-fill --contract-path from target/<pkg>.json; PRIVATE_KEY just env-forwarded
 mkdir -p target
 echo '{}' > target/token.json
+echo '{}' > target/token.abi.json
 cat > Dargo.toml <<'EOF'
 [package]
 name = "token"
@@ -190,6 +200,8 @@ EOF
 out=$(PRIVATE_KEY=0xbeef "$repo_root/psyup" deploy 2>&1)
 echo "$out" | grep -q -- "--contract-path target/token.json" \
     || { echo "FAIL: --contract-path not auto-filled from target/"; echo "$out"; exit 1; }
+echo "$out" | grep -q -- "--abi-path target/token.abi.json" \
+    || { echo "FAIL: --abi-path not auto-filled from target/"; echo "$out"; exit 1; }
 # PRIVATE_KEY is read natively by psy_user_cli via clap env — psyup should NOT
 # rewrite it into a --private-key flag.
 echo "$out" | grep -q -- "--private-key" \
@@ -201,6 +213,20 @@ echo "$out" | grep -q -- "--contract-path other.json" \
     || { echo "FAIL: user-supplied --contract-path lost"; exit 1; }
 echo "$out" | grep -q "using --contract-path=target/token.json" \
     && { echo "FAIL: should not auto-fill --contract-path when user passes it"; exit 1; } || true
+
+# 7c2. user-supplied --abi-path overrides auto-fill
+out=$(PRIVATE_KEY=0xbeef "$repo_root/psyup" deploy --contract-path other.json --abi-path custom.abi.json 2>&1)
+echo "$out" | grep -q -- "--abi-path custom.abi.json" \
+    || { echo "FAIL: user-supplied --abi-path lost"; echo "$out"; exit 1; }
+echo "$out" | grep -q "using --abi-path=target/token.abi.json" \
+    && { echo "FAIL: should not auto-fill --abi-path when user passes it"; exit 1; } || true
+
+# 7c3. old psy_user_cli versions that don't expose --abi-path should not receive it
+out=$(PSY_USER_CLI_NO_ABI_HELP=1 PRIVATE_KEY=0xbeef "$repo_root/psyup" deploy --contract-path other.json 2>&1)
+echo "$out" | grep -q "does not advertise --abi-path" \
+    || { echo "FAIL: missing warning when psy_user_cli lacks --abi-path"; echo "$out"; exit 1; }
+echo "$out" | grep -q -- "psy_user_cli invoked: .*--abi-path" \
+    && { echo "FAIL: should not pass --abi-path when psy_user_cli does not support it"; echo "$out"; exit 1; } || true
 
 # 7d. successful deploy extracts contract_uuid and writes .psy-deploy
 out=$("$repo_root/psyup" deploy 2>&1)

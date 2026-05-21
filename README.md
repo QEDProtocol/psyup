@@ -47,7 +47,7 @@ no chasing dependencies.
 | `psyup uninstall` | Remove `~/.psy` (asks first). |
 | `psyup new <name> [--template <key\|owner/repo\|url>[#subdir]]` | Download a template tarball, rewrite project name in `Dargo.toml` / `package.json`, `git init`. Default template = `dapp`. |
 | `psyup build [args...]` | `dargo compile` plus `dargo generate-abi -c <package>.abi`; auto-detects `--contract-name` from `#[contract]` struct for compilation. |
-| `psyup deploy [args...]` | `psy_user_cli deploy-contract --is-deploy`. Auto-fills `--rpc-config`, `--contract-path`. Polls service for numeric `contract_id` and saves to `.psy-deploy`. |
+| `psyup deploy [args...]` | `psy_user_cli deploy-contract --is-deploy`. Auto-fills `--rpc-config`, `--contract-path`, and `--abi-path` when ABI output exists and `psy_user_cli` supports it. Polls service for numeric `contract_id` and saves to `.psy-deploy`. |
 
 ## Layout
 
