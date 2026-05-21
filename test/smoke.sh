@@ -28,6 +28,21 @@ if [ "$1" = "compile" ]; then
     echo "dargo: built build/main.psyc DARGO_STD_PATH=${DARGO_STD_PATH:-unset} args=$*"
     exit 0
 fi
+if [ "$1" = "generate-abi" ]; then
+    contract=""
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -c) shift; contract=${1:-} ;;
+            -c=*) contract=${1#*=} ;;
+            --contract-name) shift; contract=${1:-} ;;
+            --contract-name=*) contract=${1#*=} ;;
+        esac
+        shift || true
+    done
+    mkdir -p target && : > "target/${contract}.json"
+    echo "dargo: generated ABI target/${contract}.json args=generate-abi -c $contract"
+    exit 0
+fi
 echo "dargo 0.0.0"
 EOF
 cat > "$PSY_HOME/toolchains/psy-0.0.0/bin/psy_user_cli" <<'EOF'
@@ -140,12 +155,17 @@ echo "$build_out" | grep -q 'detected contract: PsyTokenContractRef' \
     || { echo "FAIL: auto-detect of --contract-name"; echo "$build_out"; exit 1; }
 echo "$build_out" | grep -q -- '--contract-name=PsyTokenContractRef' \
     || { echo "FAIL: --contract-name not passed to dargo"; echo "$build_out"; exit 1; }
+echo "$build_out" | grep -q 'dargo: generated ABI target/demo.abi.json' \
+    || { echo "FAIL: ABI generation did not run"; echo "$build_out"; exit 1; }
 [ -f build/main.psyc ] || { echo "FAIL: build artifact missing"; exit 1; }
+[ -f target/demo.abi.json ] || { echo "FAIL: ABI artifact missing"; exit 1; }
 
 # 6b. user-supplied --contract-name overrides auto-detection
 override_out=$("$repo_root/psyup" build --contract-name=CustomRef)
 echo "$override_out" | grep -q -- '--contract-name=CustomRef' \
     || { echo "FAIL: user override of --contract-name"; echo "$override_out"; exit 1; }
+echo "$override_out" | grep -q 'dargo: generated ABI target/demo.abi.json' \
+    || { echo "FAIL: ABI generation did not use package ABI name"; echo "$override_out"; exit 1; }
 echo "$override_out" | grep -q 'detected contract:' \
     && { echo "FAIL: should not auto-detect when user passed --contract-name"; exit 1; } || true
 

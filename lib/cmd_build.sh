@@ -1,4 +1,4 @@
-# psyup build — wraps `dargo compile` in the current project.
+# psyup build — wraps `dargo compile` and `dargo generate-abi` in the current project.
 
 # Find the active toolchain's bundled psy-std and export DARGO_STD_PATH so
 # the compiler doesn't have to fall back to git. Duplicates ~/.psy/env so
@@ -55,6 +55,40 @@ detect_contract_name() {
     ' "$entry"
 }
 
+# Read the top-level `name = "..."` field from Dargo.toml.
+package_name_from_dargo() {
+    awk '
+        /^name[[:space:]]*=/ && !done {
+            sub(/^[^=]*=[[:space:]]*/, "")
+            gsub(/^"|"$/, "")
+            print
+            done=1
+        }
+    ' Dargo.toml 2>/dev/null
+}
+
+arg_value() {
+    local needle=$1
+    shift
+
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            "$needle")
+                shift
+                [ "$#" -gt 0 ] && printf '%s\n' "$1"
+                return 0
+                ;;
+            "$needle"=*)
+                printf '%s\n' "${1#*=}"
+                return 0
+                ;;
+        esac
+        shift
+    done
+
+    return 1
+}
+
 cmd_build() {
     [ -f Dargo.toml ] \
         || die "no Dargo.toml in current directory (run 'psyup new <name>' first)"
@@ -65,7 +99,7 @@ cmd_build() {
     ensure_dargo_std_path
 
     # Auto-fill --contract-name unless the user passed one.
-    local has_contract_name=0 arg
+    local has_contract_name=0 arg entry_path target_dir package_name
     for arg in "$@"; do
         case "$arg" in
             --contract-name|--contract-name=*) has_contract_name=1; break ;;
@@ -82,5 +116,25 @@ cmd_build() {
         fi
     fi
 
-    exec dargo compile "$@"
+    entry_path=$(arg_value --entry-path "$@" || true)
+    target_dir=$(arg_value --target-dir "$@" || true)
+
+    dargo compile "$@"
+
+    package_name=$(package_name_from_dargo)
+    if [ -z "$package_name" ]; then
+        warn "could not read package name from Dargo.toml; skipping ABI generation"
+        return 0
+    fi
+
+    local -a abi_args
+    abi_args=(-c "${package_name}.abi")
+    if [ -n "$entry_path" ]; then
+        abi_args+=(--entry-path "$entry_path")
+    fi
+    if [ -n "$target_dir" ]; then
+        abi_args+=(--target-dir "$target_dir")
+    fi
+
+    dargo generate-abi "${abi_args[@]}"
 }
