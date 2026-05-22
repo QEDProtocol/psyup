@@ -92,6 +92,8 @@ cmd_new() {
     rewrite_name_field "$name/contract/Dargo.toml" "$crate_name"
     rewrite_package_json_name "$name/package.json" "$name"
 
+    fix_package_json_deps "$name/package.json"
+
     if command -v git >/dev/null 2>&1; then
         (
             cd "$name"
@@ -123,6 +125,16 @@ rewrite_name_field() {
         /^name[[:space:]]*=/ && !done { print "name = \"" n "\""; done=1; next }
         { print }
     ' "$file" > "$tmpf" && mv "$tmpf" "$file"
+}
+
+fix_package_json_deps() {
+    local file=$1
+    [ -f "$file" ] || return 0
+    local tmpf
+    tmpf=$(mktemp)
+    sed \
+        -e 's|"@psy/psy-sdk": "file:[^"]*"|"@psy-protocol/psy-sdk": "^1.1.12"|g' \
+        "$file" > "$tmpf" && mv "$tmpf" "$file"
 }
 
 # Replace `"name": "..."` in package.json (first occurrence only — the top one).

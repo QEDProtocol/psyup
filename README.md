@@ -8,7 +8,7 @@ Inspired by `rustup` / `foundryup`.
 ```sh
 # 1. Install psyup itself (pins the network to staging).
 curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/feat/parth-generic-v1/install.sh \
-  | PSYUP_DEFAULT_NETWORK=staging sh
+  | PSYUP_DEFAULT_NETWORK=sepolia sh
 source ~/.psy/env
 
 # 2. Pull the PSY toolchain (dargo + psy_user_cli + ...) for your platform.
@@ -34,7 +34,7 @@ echo "VITE_PSY_CONTRACT_ID=$(jq -r .contract_id contract/.psy-deploy)" > .env.lo
 pnpm dev                                # http://localhost:5173
 ```
 
-Open the page, install [psy-wallet](https://github.com/QEDProtocol/psy-wallet),
+Open the page, [psy-wallet](https://app-stg.psy-protocol.xyz/wallet) (browser extension),
 connect, then mint / transfer / claim. No manual cloning, no source builds,
 no chasing dependencies.
 

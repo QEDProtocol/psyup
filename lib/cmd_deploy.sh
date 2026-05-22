@@ -123,7 +123,7 @@ cmd_deploy() {
         local uuid
         uuid=$(awk '
             /contract deployed:/ {
-                for (i = 1; i <= NF; i++) if ($i ~ /^[0-9a-fA-F]{32,}$/) print $i
+                for (i = 1; i <= NF; i++) if (length($i) >= 32 && $i ~ /^[0-9a-fA-F]+$/) print $i
             }
         ' "$log" | tail -n1)
         if [ -n "$uuid" ]; then
