@@ -151,6 +151,13 @@ else
     fi
 fi
 
+# install toolchain automatically if not present
+if [ ! -f "$PSY_HOME/psyc" ]; then
+    say "installing PSY toolchain..."
+    PSY_HOME="$PSY_HOME" "$PSY_HOME/bin/psyup" install
+    say ""
+fi
+
 say ""
 say "psyup installed to $PSY_HOME/bin/psyup"
 say ""
@@ -158,5 +165,4 @@ say "Please restart your terminal or run:"
 say '    export PATH="$HOME/.psy/bin:$PATH"'
 say ""
 say "Next steps:"
-say "    1. Install the PSY toolchain:  psyup install"
-say "    2. Create a new project:       psyup new my-contract"
+say "    1. Create a new project:       psyup new my-contract"
