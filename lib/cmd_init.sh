@@ -21,7 +21,7 @@ cmd_init() {
     say "creating wallet at $keystore_file..."
     mkdir -p "$keystore_dir"
 
-    if ! psy_user_cli wallet create -o "$keystore_file"; then
+    if ! psy_user_cli wallet create --output "$keystore_file"; then
         die "failed to create wallet"
     fi
 
