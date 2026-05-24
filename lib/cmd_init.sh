@@ -25,10 +25,28 @@ cmd_init() {
         die "failed to create wallet"
     fi
 
+    # Extract info
+    local pub_key fingerprint
+    pub_key=$(psy_user_cli wallet info --keystore-path "$keystore_file" 2>/dev/null | grep 'public_key_param:' | awk '{print $2}') || true
+    fingerprint=$(psy_user_cli wallet info --keystore-path "$keystore_file" 2>/dev/null | grep 'fingerprint:' | awk '{print $2}') || true
+
     say ""
     say "✅ wallet created"
     say "export PSY_PRIVATE_KEY=<your-hex-key>"
-    say ""
-    say "To register on chain, run:"
-    say "  psy_user_cli register-user --private-key <your-private-key> --fingerprint <fingerprint> --sign-type zk"
+
+    # Auto-register on chain
+    if [ -n "$fingerprint" ]; then
+        say ""
+        say "registering on chain..."
+        local rc=0
+        psy_user_cli register-user --fingerprint "$fingerprint" --sign-type zk 2>&1 | tail -10
+        rc=${PIPESTATUS[0]}
+        if [ "$rc" -eq 0 ]; then
+            say "✅ registered on chain"
+        else
+            say "⚠️ registration failed (user may already be registered)"
+            say "  To register manually, run:"
+            say "  psy_user_cli register-user --private-key <your-private-key> --fingerprint <fingerprint> --sign-type zk"
+        fi
+    fi
 }
