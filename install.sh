@@ -151,12 +151,10 @@ else
     fi
 fi
 
-# install toolchain automatically if not present
-if [ ! -f "$PSY_HOME/psyc" ]; then
-    say "installing PSY toolchain..."
-    PSY_HOME="$PSY_HOME" "$PSY_HOME/bin/psyup" install
-    say ""
-fi
+# install toolchain
+say "installing PSY toolchain..."
+PSY_HOME="$PSY_HOME" "$PSY_HOME/bin/psyup" install
+say ""
 
 say ""
 say "psyup installed to $PSY_HOME/bin/psyup"
