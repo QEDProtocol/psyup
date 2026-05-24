@@ -37,15 +37,10 @@ detect_triple() {
 TRIPLE=$(detect_triple)
 say "detected platform: $TRIPLE"
 
-if [ -d "$PSY_HOME" ]; then
-    if [ -f "$PSY_HOME/psyc" ] || [ -f "$PSY_HOME/bin/psyup" ]; then
-        say "psyup is already installed at $PSY_HOME"
-        read -rp "Reinstall and overwrite? [y/N] " confirm
-        if [[ ! "$confirm" =~ ^[Yy] ]]; then
-            say "aborting"
-            exit 0
-        fi
-    fi
+if [ -d "$PSY_HOME" ] && [ -f "$PSY_HOME/bin/psyup" ]; then
+    say "psyup is already installed at $PSY_HOME"
+    say "overwriting in 5 seconds (Ctrl+C to abort)"
+    sleep 5
 fi
 
 mkdir -p "$PSY_HOME/bin" "$PSY_HOME/toolchains" "$PSY_HOME/templates" "$PSY_HOME/lib"
