@@ -2,7 +2,7 @@
 
 PSY_HOME="${PSY_HOME:-$HOME/.psy}"
 PSYUP_TOOLCHAIN_REPO="${PSYUP_TOOLCHAIN_REPO:-QEDProtocol/psyup}"
-PSYUP_BOILERPLATE_REPO="${PSYUP_BOILERPLATE_REPO:-logere/psy-template}"
+PSYUP_BOILERPLATE_REPO="${PSYUP_BOILERPLATE_REPO:-PsyProtocol/psy-template}"
 PSYUP_DEFAULT_TEMPLATE="${PSYUP_DEFAULT_TEMPLATE:-dapp}"
 
 say()  { printf 'psyup: %s\n' "$*"; }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # psyup installer — bootstraps ~/.psy and drops the psyup script.
-# Usage: curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/main/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/main/install.sh | bash
 set -eu
 
 PSYUP_REPO="${PSYUP_REPO:-QEDProtocol/psyup}"
@@ -66,13 +66,13 @@ awk -v n="$PSYUP_DEFAULT_NETWORK" '
 ' "$PSY_HOME/config.json" > "$tmp_config" && mv "$tmp_config" "$PSY_HOME/config.json"
 
 cat > "$PSY_HOME/env" <<'EOF'
-# psyup shell integration. source this file to add psyup to PATH
-# and expose the active PSY toolchain's std library.
-# Only needed if you want to use 'source ~/.psy/env' instead of
-# relying on the shell-specific rc additions below.
-if echo "$PATH" | grep -qv "${HOME}/.psy/bin"; then
-    export PATH="$HOME/.psy/bin:$PATH"
-fi
+# psyup shell integration for POSIX shells.
+# PATH is normally added via your shell rc during install.sh; this file is
+# mainly for manual use in bash/zsh/sh. fish users should not source it.
+case ":${PATH}:" in
+    *:"$HOME/.psy/bin":*) ;;
+    *) export PATH="$HOME/.psy/bin:$PATH" ;;
+esac
 export RPC_CONFIG="$HOME/.psy/config.json"
 EOF
 
@@ -97,40 +97,48 @@ else
     ' "$PSY_HOME/settings.toml" > "$tmp_settings" && mv "$tmp_settings" "$PSY_HOME/settings.toml"
 fi
 
-# Detect shell and add psyup to PATH automatically (no source needed).
-SHELL_BIN="${SHELL##*/}"
+# Detect shell and persist psyup on PATH for future shell sessions.
+SHELL_BIN="${SHELL:-sh}"
+SHELL_BIN="${SHELL_BIN##*/}"
 
 if [[ "$SHELL_BIN" == "fish" ]]; then
-    # fish: use fish_add_path (doesn't require source)
     FISH_CONFIG="$HOME/.config/fish/config.fish"
-    if ! grep -q 'psyup' "$FISH_CONFIG" 2>/dev/null; then
-        mkdir -p "$HOME/.config/fish"
-        echo 'set -gx PATH $PATH $HOME/.psy/bin' >> "$FISH_CONFIG"
+    mkdir -p "$HOME/.config/fish"
+    if ! grep -Fq 'fish_add_path -a $HOME/.psy/bin' "$FISH_CONFIG" 2>/dev/null; then
+        printf '\n# added by psyup installer\nfish_add_path -a $HOME/.psy/bin\n' >> "$FISH_CONFIG"
         say "added psyup to fish config: $FISH_CONFIG"
     fi
 elif [[ "$SHELL_BIN" == "zsh" ]]; then
-    # zsh: append to .zshenv (sourced for every session)
     ZSH_ENV="$HOME/.zshenv"
-    if ! grep -q 'psyup' "$ZSH_ENV" 2>/dev/null; then
-        echo 'export PATH="$HOME/.psy/bin:$PATH"' >> "$ZSH_ENV"
+    if ! grep -Fq 'export PATH="$HOME/.psy/bin:$PATH"' "$ZSH_ENV" 2>/dev/null; then
+        printf '\n# added by psyup installer\nexport PATH="$HOME/.psy/bin:$PATH"\n' >> "$ZSH_ENV"
         say "added psyup to zsh config: $ZSH_ENV"
     fi
+elif [[ "$SHELL_BIN" == "bash" ]]; then
+    BASH_RC="$HOME/.bashrc"
+    BASH_PROFILE="$HOME/.bash_profile"
+    if ! grep -Fq 'export PATH="$HOME/.psy/bin:$PATH"' "$BASH_RC" 2>/dev/null; then
+        printf '\n# added by psyup installer\nexport PATH="$HOME/.psy/bin:$PATH"\n' >> "$BASH_RC"
+        say "added psyup to bash config: $BASH_RC"
+    fi
+    if [ -f "$BASH_PROFILE" ] && ! grep -Fq 'export PATH="$HOME/.psy/bin:$PATH"' "$BASH_PROFILE" 2>/dev/null; then
+        printf '\n# added by psyup installer\nexport PATH="$HOME/.psy/bin:$PATH"\n' >> "$BASH_PROFILE"
+        say "added psyup to bash config: $BASH_PROFILE"
+    fi
 else
-    # bash / sh / other: append to .profile (POSIX standard)
     PROFILE="$HOME/.profile"
-    if ! grep -q 'psyup' "$PROFILE" 2>/dev/null; then
-        echo 'export PATH="$HOME/.psy/bin:$PATH"' >> "$PROFILE"
+    if ! grep -Fq 'export PATH="$HOME/.psy/bin:$PATH"' "$PROFILE" 2>/dev/null; then
+        printf '\n# added by psyup installer\nexport PATH="$HOME/.psy/bin:$PATH"\n' >> "$PROFILE"
         say "added psyup to shell config: $PROFILE"
     fi
 fi
 
-cat <<EOF
-
-psyup installed to $PSY_HOME/bin/psyup
-
-Next steps:
-    1. Start a new terminal session (no source needed!)
-    2. Install the PSY toolchain:  psyup install
-    3. Create a new project:       psyup new my-contract
-
-EOF
+say ""
+say "psyup installed to $PSY_HOME/bin/psyup"
+say ""
+say "Please restart your terminal or run:"
+say '    export PATH="$HOME/.psy/bin:$PATH"'
+say ""
+say "Next steps:"
+say "    1. Install the PSY toolchain:  psyup install"
+say "    2. Create a new project:       psyup new my-contract"

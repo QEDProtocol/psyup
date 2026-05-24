@@ -36,7 +36,7 @@ COMMANDS:
 
 ENVIRONMENT:
     PSY_HOME             Install root (default: ~/.psy)
-    PSYUP_TOOLCHAIN_REPO Override the toolchain repo (default: psy-lang/psy-toolchain)
+    PSYUP_TOOLCHAIN_REPO Override the toolchain repo (default: QEDProtocol/psyup)
 EOF
 }
 

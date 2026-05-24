@@ -233,5 +233,5 @@ cmd_uninstall() {
     esac
     rm -rf "$PSY_HOME"
     say "removed $PSY_HOME"
-    say "note: you may want to remove the 'source ~/.psy/env' line from your shell rc"
+    say "note: you may want to remove the PATH line added by install.sh from your shell rc/config"
 }
