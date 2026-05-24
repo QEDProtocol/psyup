@@ -41,12 +41,16 @@ cmd_init() {
     say "✅ wallet created"
     say "export PSY_PRIVATE_KEY=<your-hex-key>"
 
-    # Auto-register on chain
+    # Auto-register on chain using keystore
     if [ -n "$fingerprint" ]; then
         say ""
         say "registering on chain..."
+        printf 'Enter keystore password: ' >&2
+        IFS= read -rs REGISTER_PASSWORD
+        printf '\n' >&2
         local rc2=0
-        psy_user_cli register-user --fingerprint "$fingerprint" --sign-type zk 2>&1 || rc2=$?
+        KEYSTORE_PATH="$keystore_file" WALLET_PASSWORD="$REGISTER_PASSWORD" psy_user_cli register-user --sign-type zk 2>&1 || rc2=$?
+        unset REGISTER_PASSWORD
         if [ "$rc2" -eq 0 ]; then
             say "✅ registered on chain"
         else
