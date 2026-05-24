@@ -169,3 +169,5 @@ say '    export PATH="$HOME/.psy/bin:$PATH"'
 say ""
 say "Next steps:"
 say "    1. Create a new project:       psyup new my-contract"
+say "    2. Create a wallet:            psyup init"
+say "    3. Compile the contract:       cd my-contract/contract && psyup build"
