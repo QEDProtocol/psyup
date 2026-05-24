@@ -21,12 +21,12 @@ cmd_init() {
     say "creating wallet at $keystore_file..."
     mkdir -p "$keystore_dir"
 
-    # Prompt for password (rpassword doesn't work in piped script)
+    # Prompt for password (psy_user_cli wallet create requires --password or interactive)
     printf 'Enter password for wallet: ' >&2
     IFS= read -rs WALLET_PASSWORD
     printf '\n' >&2
 
-    if ! WALLET_PASSWORD="$WALLET_PASSWORD" psy_user_cli wallet create --output "$keystore_file"; then
+    if ! psy_user_cli wallet create --output "$keystore_file" --password "$WALLET_PASSWORD"; then
         die "failed to create wallet"
     fi
     unset WALLET_PASSWORD
