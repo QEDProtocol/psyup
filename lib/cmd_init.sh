@@ -21,13 +21,18 @@ cmd_init() {
     say "creating wallet at $keystore_file..."
     mkdir -p "$keystore_dir"
 
-    if ! psy_user_cli wallet create --output "$keystore_file"; then
+    # Prompt for password (rpassword doesn't work in piped script)
+    printf 'Enter password for wallet: ' >&2
+    IFS= read -rs WALLET_PASSWORD
+    printf '\n' >&2
+
+    if ! WALLET_PASSWORD="$WALLET_PASSWORD" psy_user_cli wallet create --output "$keystore_file"; then
         die "failed to create wallet"
     fi
+    unset WALLET_PASSWORD
 
     # Extract info
-    local pub_key fingerprint
-    pub_key=$(psy_user_cli wallet info --keystore-path "$keystore_file" 2>/dev/null | grep 'public_key_param:' | awk '{print $2}') || true
+    local fingerprint
     fingerprint=$(psy_user_cli wallet info --keystore-path "$keystore_file" 2>/dev/null | grep 'fingerprint:' | awk '{print $2}') || true
 
     say ""
@@ -38,10 +43,7 @@ cmd_init() {
     if [ -n "$fingerprint" ]; then
         say ""
         say "registering on chain..."
-        local rc=0
-        psy_user_cli register-user --fingerprint "$fingerprint" --sign-type zk 2>&1 | tail -10
-        rc=${PIPESTATUS[0]}
-        if [ "$rc" -eq 0 ]; then
+        if psy_user_cli register-user --fingerprint "$fingerprint" --sign-type zk 2>&1; then
             say "✅ registered on chain"
         else
             say "⚠️ registration failed (user may already be registered)"
