@@ -68,14 +68,11 @@ awk -v n="$PSYUP_DEFAULT_NETWORK" '
 cat > "$PSY_HOME/env" <<'EOF'
 # psyup shell integration. source this file to add psyup to PATH
 # and expose the active PSY toolchain's std library.
-# Works in bash, zsh, fish, and dash (no case builtin needed).
+# Only needed if you want to use 'source ~/.psy/env' instead of
+# relying on the shell-specific rc additions below.
 if echo "$PATH" | grep -qv "${HOME}/.psy/bin"; then
     export PATH="$HOME/.psy/bin:$PATH"
 fi
-
-# DARGO_STD_PATH and RPC_CONFIG are rewritten by `psyup install` to point at
-# files installed from the active toolchain. Leave the marker lines as-is.
-# DARGO_STD_PATH=__PSYUP_MANAGED__
 export RPC_CONFIG="$HOME/.psy/config.json"
 EOF
 
@@ -100,28 +97,39 @@ else
     ' "$PSY_HOME/settings.toml" > "$tmp_settings" && mv "$tmp_settings" "$PSY_HOME/settings.toml"
 fi
 
-# Append source line to shell rc (idempotent).
-append_rc() {
-    local rc="$1" line='. "$HOME/.psy/env"'
-    [ -f "$rc" ] || return 0
-    if ! grep -Fq "$line" "$rc"; then
-        printf '\n# added by psyup installer\n%s\n' "$line" >> "$rc"
-        say "updated $rc"
-    fi
-}
+# Detect shell and add psyup to PATH automatically (no source needed).
+SHELL_BIN="${SHELL##*/}"
 
-case "${SHELL:-}" in
-    *zsh*)  append_rc "$HOME/.zshrc"  ;;
-    *bash*) append_rc "$HOME/.bashrc" ; append_rc "$HOME/.bash_profile" ;;
-    *)      append_rc "$HOME/.profile" ;;
-esac
+if [[ "$SHELL_BIN" == "fish" ]]; then
+    # fish: use fish_add_path (doesn't require source)
+    FISH_CONFIG="$HOME/.config/fish/config.fish"
+    if ! grep -q 'psyup' "$FISH_CONFIG" 2>/dev/null; then
+        mkdir -p "$HOME/.config/fish"
+        echo 'set -gx PATH $PATH $HOME/.psy/bin' >> "$FISH_CONFIG"
+        say "added psyup to fish config: $FISH_CONFIG"
+    fi
+elif [[ "$SHELL_BIN" == "zsh" ]]; then
+    # zsh: append to .zshenv (sourced for every session)
+    ZSH_ENV="$HOME/.zshenv"
+    if ! grep -q 'psyup' "$ZSH_ENV" 2>/dev/null; then
+        echo 'export PATH="$HOME/.psy/bin:$PATH"' >> "$ZSH_ENV"
+        say "added psyup to zsh config: $ZSH_ENV"
+    fi
+else
+    # bash / sh / other: append to .profile (POSIX standard)
+    PROFILE="$HOME/.profile"
+    if ! grep -q 'psyup' "$PROFILE" 2>/dev/null; then
+        echo 'export PATH="$HOME/.psy/bin:$PATH"' >> "$PROFILE"
+        say "added psyup to shell config: $PROFILE"
+    fi
+fi
 
 cat <<EOF
 
 psyup installed to $PSY_HOME/bin/psyup
 
 Next steps:
-    1. Reload your shell, or run:  source $PSY_HOME/env
+    1. Start a new terminal session (no source needed!)
     2. Install the PSY toolchain:  psyup install
     3. Create a new project:       psyup new my-contract
 
