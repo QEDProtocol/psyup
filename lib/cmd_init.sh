@@ -21,15 +21,17 @@ cmd_init() {
     say "creating wallet at $keystore_file..."
     mkdir -p "$keystore_dir"
 
-    # Prompt for password (psy_user_cli wallet create requires --password or interactive)
+    # Prompt for password
     printf 'Enter password for wallet: ' >&2
     IFS= read -rs WALLET_PASSWORD
     printf '\n' >&2
 
-    if ! psy_user_cli wallet create --output "$keystore_file" --password "$WALLET_PASSWORD"; then
+    local rc=0
+    psy_user_cli wallet create --output "$keystore_file" --password "$WALLET_PASSWORD" 2>&1 || rc=$?
+    unset WALLET_PASSWORD
+    if [ "$rc" -ne 0 ]; then
         die "failed to create wallet"
     fi
-    unset WALLET_PASSWORD
 
     # Extract info
     local fingerprint
@@ -43,7 +45,9 @@ cmd_init() {
     if [ -n "$fingerprint" ]; then
         say ""
         say "registering on chain..."
-        if psy_user_cli register-user --fingerprint "$fingerprint" --sign-type zk 2>&1; then
+        local rc2=0
+        psy_user_cli register-user --fingerprint "$fingerprint" --sign-type zk 2>&1 || rc2=$?
+        if [ "$rc2" -eq 0 ]; then
             say "✅ registered on chain"
         else
             say "⚠️ registration failed (user may already be registered)"
