@@ -85,18 +85,22 @@ write_env_paths() {
         warn "  builds will fall back to git-cloning std (slow)"
     fi
 
-    if [ -f "$toolchain_config" ]; then
+    # Runtime config at ~/.psy/config.json is authoritative once present.
+    # Do not overwrite it from the toolchain tarball on install/update, or an
+    # older packaged config can regress network names/endpoints (e.g. reintroduce
+    # legacy 'staging' after install.sh fetched a newer repo config).
+    if [ -f "$rpc_config" ]; then
+        validate_network_in_config "$rpc_config" "$default_network"
+        set_config_default_network "$rpc_config" "$default_network"
+        have_rpc_config=1
+    elif [ -f "$toolchain_config" ]; then
         cp "$toolchain_config" "$rpc_config"
         validate_network_in_config "$rpc_config" "$default_network"
         set_config_default_network "$rpc_config" "$default_network"
         have_rpc_config=1
-    elif [ -f "$rpc_config" ]; then
-        validate_network_in_config "$rpc_config" "$default_network"
-        set_config_default_network "$rpc_config" "$default_network"
-        have_rpc_config=1
     else
-        warn "config.json not found at $toolchain_config"
-        warn "  the toolchain release should ship config.json or install.sh should install $rpc_config"
+        warn "config.json not found at $rpc_config or $toolchain_config"
+        warn "  install.sh should install $rpc_config, or the toolchain release should ship config.json"
         warn "  deploy will require --rpc-config or RPC_CONFIG"
     fi
 
