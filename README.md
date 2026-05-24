@@ -104,10 +104,12 @@ binaries are on PATH after install.
 
 After `psyup install`, `~/.psy/env` is rewritten to export
 `DARGO_STD_PATH=<toolchain-root>/lib/psy-std/std.psy` so the compiler can find
-the stdlib without falling back to a git clone. It also installs the
-toolchain's `config.json` to `~/.psy/config.json` and exports
-`RPC_CONFIG=~/.psy/config.json` for `psy_user_cli`. `psyup build` also sets
-`DARGO_STD_PATH` defensively in case the shell didn't source `~/.psy/env`.
+the stdlib without falling back to a git clone. It also exports
+`RPC_CONFIG=~/.psy/config.json` for `psy_user_cli`. Runtime config at
+`~/.psy/config.json` is authoritative once present: `install.sh` installs it,
+and `psyup install/update` preserves it instead of overwriting it from an older
+toolchain tarball. `psyup build` also sets `DARGO_STD_PATH` defensively in
+case the shell didn't source `~/.psy/env`.
 Set `PSYUP_DEFAULT_NETWORK=<name>` before running `install.sh` or
 `psyup install` to choose the default network; otherwise it defaults to
 `localhost`.

@@ -276,7 +276,7 @@ default_network = "localhost"
 EOF
 
 PSY_HOME="$install_home" \
-PSYUP_DEFAULT_NETWORK="staging" \
+PSYUP_DEFAULT_NETWORK="sepolia" \
 PSYUP_RELEASE_URL="file://$fake_release" \
     "$repo_root/psyup" install 0.9.9
 
@@ -300,11 +300,11 @@ done
 # settings.toml should now have active = "0.9.9"
 grep -q 'active = "0.9.9"' "$install_home/settings.toml" \
     || { echo "FAIL: settings.toml active not updated"; cat "$install_home/settings.toml"; exit 1; }
-grep -q 'default_network = "staging"' "$install_home/settings.toml" \
+grep -q 'default_network = "sepolia"' "$install_home/settings.toml" \
     || { echo "FAIL: settings.toml default_network not updated"; cat "$install_home/settings.toml"; exit 1; }
 grep -q 'rpc_config' "$install_home/settings.toml" \
     && { echo "FAIL: settings.toml should not contain rpc_config"; cat "$install_home/settings.toml"; exit 1; } || true
-grep -q '"defaultNetwork": "staging"' "$install_home/config.json" \
+grep -q '"defaultNetwork": "sepolia"' "$install_home/config.json" \
     || { echo "FAIL: config.json defaultNetwork not updated"; cat "$install_home/config.json"; exit 1; }
 
 # env file should have DARGO_STD_PATH pointing at the installed std
