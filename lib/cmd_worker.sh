@@ -71,9 +71,9 @@ cmd_worker() {
             printf '%s\n' "$info_out" >&2
             die "failed to derive public key from PRIVATE_KEY"
         fi
-        public_key_hash=$(printf '%s\n' "$info_out" | awk '/public_key_hash:/ {print $2; exit}')
+        public_key_hash=$(printf '%s\n' "$info_out" | awk '/public_key:/ {print $2; exit}')
         pub_key=$(printf '%s\n' "$info_out" | awk '/public_key_param:/ {print $2; exit}')
-        [ -n "$public_key_hash" ] || die "wallet info did not contain public_key_hash (private key invalid?)"
+        [ -n "$public_key_hash" ] || die "wallet info did not contain public_key (private key invalid?)"
         [ -n "$pub_key" ] || die "wallet info did not contain public_key_param (private key invalid?)"
     else
         if [ -z "${WALLET_PASSWORD:-}" ]; then
@@ -90,9 +90,9 @@ cmd_worker() {
             printf '%s\n' "$info_out" >&2
             die "failed to read wallet info; check keystore password"
         fi
-        public_key_hash=$(printf '%s\n' "$info_out" | awk '/public_key_hash:/ {print $2; exit}')
+        public_key_hash=$(printf '%s\n' "$info_out" | awk '/public_key:/ {print $2; exit}')
         pub_key=$(printf '%s\n' "$info_out" | awk '/public_key_param:/ {print $2; exit}')
-        [ -n "$public_key_hash" ] || die "wallet info did not contain public_key_hash (corrupt keystore?)"
+        [ -n "$public_key_hash" ] || die "wallet info did not contain public_key (corrupt keystore?)"
         [ -n "$pub_key" ] || die "wallet info did not contain public_key_param (corrupt keystore?)"
     fi
 

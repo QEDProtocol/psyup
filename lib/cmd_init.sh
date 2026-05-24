@@ -12,7 +12,7 @@ _read_wallet_ids_from_keystore() {
         return 1
     fi
     local pkh pkp
-    pkh=$(printf '%s\n' "$out" | awk '/public_key_hash:/ {print $2; exit}')
+    pkh=$(printf '%s\n' "$out" | awk '/public_key:/ {print $2; exit}')
     pkp=$(printf '%s\n' "$out" | awk '/public_key_param:/ {print $2; exit}')
     if [ -z "$pkh" ] || [ -z "$pkp" ]; then
         printf '%s\n' "$out" >&2
