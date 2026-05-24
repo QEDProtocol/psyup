@@ -61,6 +61,7 @@ cmd_worker() {
 
     local public_key_hash=""
     local pub_key=""
+    local resolved_private_key=""
     local wallet_password=""
 
     if [ "$has_private_key" -eq 1 ]; then
@@ -73,6 +74,7 @@ cmd_worker() {
         fi
         public_key_hash=$(printf '%s\n' "$info_out" | awk '/public_key:/ {print $2; exit}')
         pub_key=$(printf '%s\n' "$info_out" | awk '/public_key_param:/ {print $2; exit}')
+        resolved_private_key="$private_key"
         [ -n "$public_key_hash" ] || die "wallet info did not contain public_key (private key invalid?)"
         [ -n "$pub_key" ] || die "wallet info did not contain public_key_param (private key invalid?)"
     else
@@ -92,8 +94,10 @@ cmd_worker() {
         fi
         public_key_hash=$(printf '%s\n' "$info_out" | awk '/public_key:/ {print $2; exit}')
         pub_key=$(printf '%s\n' "$info_out" | awk '/public_key_param:/ {print $2; exit}')
+        resolved_private_key=$(printf '%s\n' "$info_out" | awk '/private_key:/ {print $2; exit}')
         [ -n "$public_key_hash" ] || die "wallet info did not contain public_key (corrupt keystore?)"
         [ -n "$pub_key" ] || die "wallet info did not contain public_key_param (corrupt keystore?)"
+        [ -n "$resolved_private_key" ] || die "wallet info did not contain private_key (corrupt keystore?)"
     fi
 
     say "resolving user_id..."
@@ -124,25 +128,13 @@ cmd_worker() {
     say ""
 
     local worker_args=()
-    if [ "$has_private_key" -eq 1 ]; then
-        worker_args+=("--private-key" "$private_key")
-    else
-        worker_args+=("--keystore-path" "$keystore_file" "--wallet-password" "$wallet_password")
-    fi
+    worker_args+=("--private-key" "$resolved_private_key")
     worker_args+=("--user" "$user_id")
 
-    # Worker network enum is NOT the same namespace as config.json defaultNetwork.
-    # Current supported mapping: localhost -> local-devnet.
+    # Worker network enum is fixed for this workflow and is independent of
+    # ~/.psy/config.json defaultNetwork, which selects coordinator/realm URLs.
     if ! has_flag --network "$@"; then
-        case "$(get_current_network)" in
-            localhost)
-                worker_args+=("--network" "local-devnet")
-                ;;
-            *)
-                wallet_password=""
-                die "psyup worker currently only supports defaultNetwork=localhost (local devnet); got '$(get_current_network)'"
-                ;;
-        esac
+        worker_args+=("--network" "local-devnet")
     fi
 
     # Map shared ~/.psy/config.json network config into worker-specific API URL args
