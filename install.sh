@@ -68,10 +68,10 @@ awk -v n="$PSYUP_DEFAULT_NETWORK" '
 cat > "$PSY_HOME/env" <<'EOF'
 # psyup shell integration. source this file to add psyup to PATH
 # and expose the active PSY toolchain's std library.
-case ":${PATH}:" in
-    *:"$HOME/.psy/bin":*) ;;
-    *) export PATH="$HOME/.psy/bin:$PATH" ;;
-esac
+# Works in bash, zsh, fish, and dash (no case builtin needed).
+if echo "$PATH" | grep -qv "${HOME}/.psy/bin"; then
+    export PATH="$HOME/.psy/bin:$PATH"
+fi
 
 # DARGO_STD_PATH and RPC_CONFIG are rewritten by `psyup install` to point at
 # files installed from the active toolchain. Leave the marker lines as-is.
