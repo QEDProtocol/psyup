@@ -72,6 +72,26 @@ cmd_deploy() {
         export RPC_CONFIG="$PSY_HOME/config.json"
     fi
 
+    # Private key resolution:
+    #   1. PRIVATE_KEY env var (highest priority, for CI/automation)
+    #   2. Keystore interactive password prompt
+    if [ -z "${PRIVATE_KEY:-}" ]; then
+        local keystore_file="$PSY_HOME/keystore/default"
+        if [ -f "$keystore_file" ]; then
+            say "entering password for keystore: $keystore_file"
+            local password
+            printf 'password: ' >&2
+            IFS= read -rs password
+            printf '\n' >&2
+            export PRIVATE_KEY=$(psy_user_cli wallet info --keystore-path "$keystore_file" --wallet-password "$password" 2>/dev/null | grep 'private_key:' | awk '{print $2}') || true
+            if [ -z "$PRIVATE_KEY" ]; then
+                die "failed to decrypt keystore; check password"
+            fi
+        else
+            die "no PRIVATE_KEY set and no keystore at $keystore_file (run 'psyup init' first)"
+        fi
+    fi
+
     local pkg=""
 
     # --contract-path auto-fill from build output
