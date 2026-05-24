@@ -112,7 +112,7 @@ Set `PSYUP_DEFAULT_NETWORK=<name>` before running `install.sh` or
 `psyup install` to choose the default network; otherwise it defaults to
 `localhost`.
 
-### `logere/psy-template`
+### `PsyProtocol/psy-template`
 
 Multi-template repo — each top-level directory is one named template.
 `psyup new` downloads the repo's `main` tarball and extracts the requested
@@ -143,7 +143,7 @@ Selection:
 | invocation | result |
 |---|---|
 | `psyup new my-app` | default subdir = `$PSYUP_DEFAULT_TEMPLATE` (currently `dapp`) |
-| `psyup new my-app --template <key>` | `<key>/` subdir of `logere/psy-template` |
+| `psyup new my-app --template <key>` | `<key>/` subdir of `PsyProtocol/psy-template` |
 | `psyup new my-app --template owner/repo` | that repo's whole `main` archive |
 | `psyup new my-app --template owner/repo#sub` | `sub/` subdir of that repo |
 | `psyup new my-app --template https://...tar.gz[#sub]` | direct tarball URL (with optional subdir) |
