@@ -135,20 +135,20 @@ fi
 SHELL_BIN="${SHELL:-sh}"
 SHELL_BIN="${SHELL_BIN##*/}"
 
-if [[ "$SHELL_BIN" == "fish" ]]; then
+if [ "$SHELL_BIN" = "fish" ]; then
     FISH_CONFIG="$HOME/.config/fish/config.fish"
     mkdir -p "$HOME/.config/fish"
     if ! grep -Fq 'fish_add_path -a $HOME/.psy/bin' "$FISH_CONFIG" 2>/dev/null; then
         printf '\n# added by psyup installer\nfish_add_path -a $HOME/.psy/bin\n' >> "$FISH_CONFIG"
         say "added psyup to fish config: $FISH_CONFIG"
     fi
-elif [[ "$SHELL_BIN" == "zsh" ]]; then
+elif [ "$SHELL_BIN" = "zsh" ]; then
     ZSH_ENV="$HOME/.zshenv"
     if ! grep -Fq 'export PATH="$HOME/.psy/bin:$PATH"' "$ZSH_ENV" 2>/dev/null; then
         printf '\n# added by psyup installer\nexport PATH="$HOME/.psy/bin:$PATH"\n' >> "$ZSH_ENV"
         say "added psyup to zsh config: $ZSH_ENV"
     fi
-elif [[ "$SHELL_BIN" == "bash" ]]; then
+elif [ "$SHELL_BIN" = "bash" ]; then
     BASH_RC="$HOME/.bashrc"
     BASH_PROFILE="$HOME/.bash_profile"
     if ! grep -Fq 'export PATH="$HOME/.psy/bin:$PATH"' "$BASH_RC" 2>/dev/null; then
