@@ -7,7 +7,7 @@ Inspired by `rustup` / `foundryup`.
 
 ```sh
 # 1. Install psyup itself (pins the network to sepolia).
-curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/feat/parth-generic-v1/install.sh \
+curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/main/install.sh \
   | PSYUP_DEFAULT_NETWORK=sepolia sh
 # (no need to source — install.sh auto-writes your shell rc)
 
