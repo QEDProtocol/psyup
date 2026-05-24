@@ -32,6 +32,7 @@ COMMANDS:
     deploy [args...]     Deploy the compiled contract via psy_user_cli deploy-contract.
                          Pass-through; auto-fills --rpc-config from settings.toml.
     init                 Create a default wallet at ~/.psy/keystore/default.
+    worker               Run the proof miner (resolves user_id from keystore or PRIVATE_KEY).
     version              Print psyup version.
     help                 Show this message.
 
@@ -64,6 +65,10 @@ case "$cmd" in
     init)
         . "$PSYUP_LIB/cmd_init.sh"
         cmd_init "$@"
+        ;;
+    worker)
+        . "$PSYUP_LIB/cmd_worker.sh"
+        cmd_worker "$@"
         ;;
     version|--version|-V)
         echo "psyup 0.1.0"

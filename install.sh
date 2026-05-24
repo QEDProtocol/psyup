@@ -16,6 +16,7 @@ need() { command -v "$1" >/dev/null 2>&1 || die "missing required tool: $1"; }
 need curl
 need uname
 need tar
+need python3
 
 detect_triple() {
     local os arch
@@ -40,11 +41,11 @@ say "detected platform: $TRIPLE"
 if [ -d "$PSY_HOME" ] && [ -f "$PSY_HOME/bin/psyup" ]; then
     say "psyup is already installed at $PSY_HOME"
     if [ -d "$PSY_HOME/keystore" ]; then
-        say "found existing keystore at $PSY_HOME/keystore (skipping to protect your wallet)"
-        say "to reinstall: curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/$PSYUP_BRANCH/install.sh -o /tmp/psyup-install.sh && rm -rf $PSY_HOME && bash /tmp/psyup-install.sh"
-        exit 1
+        say "found existing keystore at $PSY_HOME/keystore (will be preserved)"
+        say "overwriting non-keystore files in 5 seconds (Ctrl+C to abort)"
+    else
+        say "overwriting in 5 seconds (Ctrl+C to abort)"
     fi
-    say "overwriting in 5 seconds (Ctrl+C to abort)"
     sleep 5
 fi
 
@@ -72,10 +73,20 @@ fetch() {
 fetch psyup           "$PSY_HOME/bin/psyup"
 chmod +x "$PSY_HOME/bin/psyup"
 
-for f in common.sh cmd_install.sh cmd_new.sh cmd_build.sh cmd_deploy.sh cmd_init.sh; do
+for f in common.sh cmd_install.sh cmd_new.sh cmd_build.sh cmd_deploy.sh cmd_init.sh cmd_worker.sh; do
     fetch "lib/$f" "$PSY_HOME/lib/$f"
 done
 fetch config.json "$PSY_HOME/config.json"
+python3 - "$PSY_HOME/config.json" "$PSYUP_DEFAULT_NETWORK" <<'PY' >/dev/null || die "invalid default network '$PSYUP_DEFAULT_NETWORK' for $PSY_HOME/config.json"
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+network = sys.argv[2]
+nets = cfg.get("networks", {})
+if network not in nets:
+    available = ", ".join(sorted(nets.keys())) if isinstance(nets, dict) and nets else "<none>"
+    print(f"invalid network '{network}' (available: {available})", file=sys.stderr)
+    sys.exit(1)
+PY
 tmp_config=$(mktemp)
 awk -v n="$PSYUP_DEFAULT_NETWORK" '
     /^[[:space:]]*"defaultNetwork"[[:space:]]*:/ {

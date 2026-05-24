@@ -189,7 +189,18 @@ lookup_contract_id() {
     command -v curl >/dev/null 2>&1 || return 0
 
     local default_net
-    default_net=$(settings_get default_network)
+    default_net=$(python3 - "$cfg" <<'PY' 2>/dev/null
+import json, sys
+try:
+    cfg = json.load(open(sys.argv[1]))
+    print(cfg.get("defaultNetwork", ""))
+except Exception:
+    print("")
+PY
+)
+    if [ -z "$default_net" ]; then
+        default_net=$(settings_get default_network)
+    fi
 
     # Returns "<status>\t<url>" so the caller can warn on silent fallback.
     local lookup_out status service_url

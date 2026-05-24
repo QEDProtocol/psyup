@@ -54,3 +54,38 @@ settings_get() {
         }
     ' "$file"
 }
+
+# Read the current default network from config.json.
+# Uses PSYUP_CONFIG env var if set, otherwise falls back to $PSY_HOME/config.json.
+get_current_network() {
+    local config_file="${PSYUP_CONFIG:-$PSY_HOME/config.json}"
+    if [ -f "$config_file" ]; then
+        python3 -c "
+import json, sys
+try:
+    cfg = json.load(open(sys.argv[1]))
+    print(cfg.get('defaultNetwork', 'unknown'))
+except Exception:
+    print('unknown')
+" "$config_file" 2>/dev/null || echo "unknown"
+    else
+        echo "unknown"
+    fi
+}
+
+validate_network_in_config() {
+    local config_file=$1 network=$2
+    [ -f "$config_file" ] || die "config file not found: $config_file"
+    command -v python3 >/dev/null 2>&1 || die "python3 is required to validate network config"
+    python3 - "$config_file" "$network" <<'PY' >/dev/null
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+network = sys.argv[2]
+nets = cfg.get("networks", {})
+if network not in nets:
+    available = ", ".join(sorted(nets.keys())) if isinstance(nets, dict) and nets else "<none>"
+    print(f"invalid network '{network}' (available: {available})", file=sys.stderr)
+    sys.exit(1)
+PY
+    [ $? -eq 0 ] || die "invalid default network '$network' for $config_file"
+}

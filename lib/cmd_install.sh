@@ -87,9 +87,11 @@ write_env_paths() {
 
     if [ -f "$toolchain_config" ]; then
         cp "$toolchain_config" "$rpc_config"
+        validate_network_in_config "$rpc_config" "$default_network"
         set_config_default_network "$rpc_config" "$default_network"
         have_rpc_config=1
     elif [ -f "$rpc_config" ]; then
+        validate_network_in_config "$rpc_config" "$default_network"
         set_config_default_network "$rpc_config" "$default_network"
         have_rpc_config=1
     else
@@ -224,14 +226,35 @@ cmd_update() {
 }
 
 cmd_uninstall() {
-    printf 'psyup: this will remove %s. continue? [y/N] ' "$PSY_HOME"
+    printf 'psyup: this will remove psyup binaries, libs, toolchains, templates, config, and settings under %s, but preserve %s/keystore. continue? [y/N] ' "$PSY_HOME" "$PSY_HOME"
     local reply
     read -r reply
     case "$reply" in
         y|Y|yes|YES) ;;
         *) say "aborted"; return 0 ;;
     esac
-    rm -rf "$PSY_HOME"
-    say "removed $PSY_HOME"
+
+    local preserved_keystore=0
+    if [ -d "$PSY_HOME/keystore" ]; then
+        preserved_keystore=1
+    fi
+
+    rm -rf \
+        "$PSY_HOME/bin" \
+        "$PSY_HOME/lib" \
+        "$PSY_HOME/toolchains" \
+        "$PSY_HOME/templates" \
+        "$PSY_HOME/env" \
+        "$PSY_HOME/config.json" \
+        "$PSY_HOME/settings.toml"
+
+    # Remove the root dir only if nothing preserved remains.
+    if [ "$preserved_keystore" -ne 1 ]; then
+        rmdir "$PSY_HOME" 2>/dev/null || true
+        say "removed $PSY_HOME"
+    else
+        say "removed psyup files under $PSY_HOME"
+        say "preserved keystore at $PSY_HOME/keystore"
+    fi
     say "note: you may want to remove the PATH line added by install.sh from your shell rc/config"
 }
