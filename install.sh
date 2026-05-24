@@ -67,7 +67,7 @@ fetch() {
 fetch psyup           "$PSY_HOME/bin/psyup"
 chmod +x "$PSY_HOME/bin/psyup"
 
-for f in common.sh cmd_install.sh cmd_new.sh cmd_build.sh cmd_deploy.sh; do
+for f in common.sh cmd_install.sh cmd_new.sh cmd_build.sh cmd_deploy.sh cmd_init.sh; do
     fetch "lib/$f" "$PSY_HOME/lib/$f"
 done
 fetch config.json "$PSY_HOME/config.json"
