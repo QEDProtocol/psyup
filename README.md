@@ -6,14 +6,13 @@ Inspired by `rustup` / `foundryup`.
 ## End-to-end quickstart
 
 ```sh
-# 1. Install psyup itself (pins the network to staging).
+# 1. Install psyup itself (pins the network to sepolia).
 curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/feat/parth-generic-v1/install.sh \
   | PSYUP_DEFAULT_NETWORK=sepolia sh
-source ~/.psy/env
+# (no need to source — install.sh auto-writes your shell rc)
 
 # 2. Pull the PSY toolchain (dargo + psy_user_cli + ...) for your platform.
 psyup install
-source ~/.psy/env
 
 # 3. Scaffold a new project from the dapp template.
 psyup new token-app
