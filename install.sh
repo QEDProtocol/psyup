@@ -39,6 +39,11 @@ say "detected platform: $TRIPLE"
 
 if [ -d "$PSY_HOME" ] && [ -f "$PSY_HOME/bin/psyup" ]; then
     say "psyup is already installed at $PSY_HOME"
+    if [ -d "$PSY_HOME/keystore" ]; then
+        say "found existing keystore at $PSY_HOME/keystore (skipping)"
+        say "to reinstall: rm -rf $PSY_HOME && bash <(curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/$PSYUP_BRANCH/install.sh)"
+        exit 1
+    fi
     say "overwriting in 5 seconds (Ctrl+C to abort)"
     sleep 5
 fi
