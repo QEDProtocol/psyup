@@ -54,7 +54,19 @@ fetch() {
     # fetch <remote-path> <local-path>
     local url="$RAW_BASE/$1"
     say "fetching $1"
-    curl -fsSL "$url" -o "$2" || die "failed to download $url"
+    local tmp_file
+    tmp_file=$(mktemp)
+    if curl -fsSL "$url" -o "$tmp_file"; then
+        # only overwrite if content changed
+        if [ -f "$2" ] && cmp -s "$tmp_file" "$2"; then
+            rm -f "$tmp_file"
+            return 0
+        fi
+        mv "$tmp_file" "$2"
+    else
+        rm -f "$tmp_file"
+        die "failed to download $url"
+    fi
 }
 
 fetch psyup           "$PSY_HOME/bin/psyup"
