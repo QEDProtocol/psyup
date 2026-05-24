@@ -96,7 +96,17 @@ cmd_worker() {
     id_out=$(RPC_CONFIG="$rpc_config" psy_user_cli get-user-id --pub-key "$pub_key" 2>&1) || id_rc=$?
     if [ "$id_rc" -ne 0 ]; then
         printf '%s\n' "$id_out" >&2
-        die "get-user-id failed; is RPC reachable? (network: $(get_current_network))"
+        case "$id_out" in
+            *"no user ids found"*)
+                die "no user_id found for this wallet on $(get_current_network); run 'psyup init' to register"
+                ;;
+            *"Connection error"*|*"error sending request"*|*"timed out"*|*"dns error"*)
+                die "get-user-id failed; is RPC reachable? (network: $(get_current_network))"
+                ;;
+            *)
+                die "get-user-id failed on $(get_current_network)"
+                ;;
+        esac
     fi
     user_id=$(printf '%s\n' "$id_out" | awk '/user_id:/ {print $2; exit}')
     if [ -z "$user_id" ]; then

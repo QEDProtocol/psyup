@@ -46,11 +46,19 @@ cmd_init() {
         id_out=$(RPC_CONFIG="$rpc_config" psy_user_cli get-user-id --pub-key "$pub_key" 2>&1) || id_rc=$?
         local user_id=""
         if [ "$id_rc" -ne 0 ]; then
-            printf '%s\n' "$id_out" >&2
-            password=""
-            die "get-user-id failed; is RPC reachable? (network: $(get_current_network))"
+            case "$id_out" in
+                *"no user ids found"*)
+                    user_id=""
+                    ;;
+                *)
+                    printf '%s\n' "$id_out" >&2
+                    password=""
+                    die "get-user-id failed; is RPC reachable? (network: $(get_current_network))"
+                    ;;
+            esac
+        else
+            user_id=$(printf '%s\n' "$id_out" | awk '/user_id:/ {print $2; exit}')
         fi
-        user_id=$(printf '%s\n' "$id_out" | awk '/user_id:/ {print $2; exit}')
 
         if [ -n "$user_id" ]; then
             say "✅ user already registered (user_id: $user_id, network: $(get_current_network))"
@@ -110,11 +118,19 @@ cmd_init() {
     id_out=$(RPC_CONFIG="$rpc_config" psy_user_cli get-user-id --pub-key "$pub_key" 2>&1) || id_rc=$?
     local user_id=""
     if [ "$id_rc" -ne 0 ]; then
-        printf '%s\n' "$id_out" >&2
-        password=""
-        die "get-user-id failed; is RPC reachable? (network: $(get_current_network))"
+        case "$id_out" in
+            *"no user ids found"*)
+                user_id=""
+                ;;
+            *)
+                printf '%s\n' "$id_out" >&2
+                password=""
+                die "get-user-id failed; is RPC reachable? (network: $(get_current_network))"
+                ;;
+        esac
+    else
+        user_id=$(printf '%s\n' "$id_out" | awk '/user_id:/ {print $2; exit}')
     fi
-    user_id=$(printf '%s\n' "$id_out" | awk '/user_id:/ {print $2; exit}')
     if [ -n "$user_id" ]; then
         say "✅ user already registered (user_id: $user_id)"
         password=""
