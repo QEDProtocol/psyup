@@ -31,6 +31,7 @@ COMMANDS:
     build [args...]      Compile the contract project in the current directory.
     deploy [args...]     Deploy the compiled contract via psy_user_cli deploy-contract.
                          Pass-through; auto-fills --rpc-config from settings.toml.
+    init                 Create a default wallet at ~/.psy/keystore/default.
     version              Print psyup version.
     help                 Show this message.
 
@@ -59,6 +60,10 @@ case "$cmd" in
     deploy)
         . "$PSYUP_LIB/cmd_deploy.sh"
         cmd_deploy "$@"
+        ;;
+    init)
+        . "$PSYUP_LIB/cmd_init.sh"
+        cmd_init "$@"
         ;;
     version|--version|-V)
         echo "psyup 0.1.0"
