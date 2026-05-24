@@ -59,6 +59,7 @@ cmd_worker() {
         die "no wallet found. Run 'psyup init' first to create a wallet, or set PRIVATE_KEY."
     fi
 
+    local public_key_hash=""
     local pub_key=""
     local wallet_password=""
 
@@ -70,7 +71,9 @@ cmd_worker() {
             printf '%s\n' "$info_out" >&2
             die "failed to derive public key from PRIVATE_KEY"
         fi
+        public_key_hash=$(printf '%s\n' "$info_out" | awk '/public_key_hash:/ {print $2; exit}')
         pub_key=$(printf '%s\n' "$info_out" | awk '/public_key_param:/ {print $2; exit}')
+        [ -n "$public_key_hash" ] || die "wallet info did not contain public_key_hash (private key invalid?)"
         [ -n "$pub_key" ] || die "wallet info did not contain public_key_param (private key invalid?)"
     else
         if [ -z "${WALLET_PASSWORD:-}" ]; then
@@ -87,13 +90,15 @@ cmd_worker() {
             printf '%s\n' "$info_out" >&2
             die "failed to read wallet info; check keystore password"
         fi
+        public_key_hash=$(printf '%s\n' "$info_out" | awk '/public_key_hash:/ {print $2; exit}')
         pub_key=$(printf '%s\n' "$info_out" | awk '/public_key_param:/ {print $2; exit}')
+        [ -n "$public_key_hash" ] || die "wallet info did not contain public_key_hash (corrupt keystore?)"
         [ -n "$pub_key" ] || die "wallet info did not contain public_key_param (corrupt keystore?)"
     fi
 
     say "resolving user_id..."
     local id_out id_rc=0
-    id_out=$(RPC_CONFIG="$rpc_config" psy_user_cli get-user-id --pub-key "$pub_key" 2>&1) || id_rc=$?
+    id_out=$(RPC_CONFIG="$rpc_config" psy_user_cli get-user-id --pub-key "$public_key_hash" 2>&1) || id_rc=$?
     if [ "$id_rc" -ne 0 ]; then
         printf '%s\n' "$id_out" >&2
         case "$id_out" in
