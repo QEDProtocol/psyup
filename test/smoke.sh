@@ -312,6 +312,10 @@ grep -q "DARGO_STD_PATH=.*psy-0.9.9/lib/psy-std/std.psy" "$install_home/env" \
     || { echo "FAIL: ~/.psy/env DARGO_STD_PATH not rewritten"; cat "$install_home/env"; exit 1; }
 grep -q "RPC_CONFIG=\"$install_home/config.json\"" "$install_home/env" \
     || { echo "FAIL: ~/.psy/env RPC_CONFIG not rewritten"; cat "$install_home/env"; exit 1; }
+grep -q "DARGO_STD_PATH \"$install_home/toolchains/psy-0.9.9/lib/psy-std/std.psy\"" "$install_home/env.fish" \
+    || { echo "FAIL: ~/.psy/env.fish DARGO_STD_PATH not rewritten"; cat "$install_home/env.fish"; exit 1; }
+grep -q "RPC_CONFIG \"$install_home/config.json\"" "$install_home/env.fish" \
+    || { echo "FAIL: ~/.psy/env.fish RPC_CONFIG not rewritten"; cat "$install_home/env.fish"; exit 1; }
 
 # 9b. If GitHub latest resolution is rate-limited, install falls back to 0.1.0.
 PSYUP_FAKE_TOOLCHAIN_DIR="$fake_release" bash "$repo_root/packaging/make-fake-toolchain.sh" 0.1.0 >/dev/null

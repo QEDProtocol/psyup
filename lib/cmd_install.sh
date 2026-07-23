@@ -18,6 +18,15 @@ current_version() {
     settings_get active
 }
 
+download_file() {
+    local url=$1 out=$2
+    if [ -t 2 ]; then
+        curl -fL --progress-bar "$url" -o "$out"
+    else
+        curl -fsSL "$url" -o "$out"
+    fi
+}
+
 install_toolchain() {
     local version=$1 triple default_network
     triple=$(detect_triple)
@@ -33,7 +42,7 @@ install_toolchain() {
     tmp=$(mktemp -d)
 
     say "downloading $tarball"
-    curl -fsSL "$base/$tarball" -o "$tmp/$tarball" \
+    download_file "$base/$tarball" "$tmp/$tarball" \
         || die "failed to download $base/$tarball"
     curl -fsSL "$base/$sums" -o "$tmp/$sums" \
         || die "failed to download $base/$sums"
@@ -75,6 +84,7 @@ write_env_paths() {
     local toolchain_config="$PSY_HOME/toolchains/psy-${version}/config.json"
     local rpc_config="$PSY_HOME/config.json"
     local env_file="$PSY_HOME/env"
+    local fish_env_file="$PSY_HOME/env.fish"
     local have_rpc_config=0
 
     [ -f "$env_file" ] || return 0
@@ -132,6 +142,15 @@ write_env_paths() {
     if [ "$have_rpc_config" -eq 1 ]; then
         say "RPC_CONFIG -> $rpc_config"
     fi
+
+    {
+        printf '# psyup shell integration for fish.\n'
+        printf 'fish_add_path -a "%s/bin"\n' "$PSY_HOME"
+        printf 'set -gx DARGO_STD_PATH "%s"\n' "$std_path"
+        if [ "$have_rpc_config" -eq 1 ]; then
+            printf 'set -gx RPC_CONFIG "%s"\n' "$rpc_config"
+        fi
+    } > "$fish_env_file"
 }
 
 update_settings() {
@@ -249,6 +268,7 @@ cmd_uninstall() {
         "$PSY_HOME/toolchains" \
         "$PSY_HOME/templates" \
         "$PSY_HOME/env" \
+        "$PSY_HOME/env.fish" \
         "$PSY_HOME/config.json" \
         "$PSY_HOME/settings.toml"
 

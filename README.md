@@ -56,7 +56,8 @@ no chasing dependencies.
 ├── toolchains/     # versioned: psy-<ver>/{bin/, lib/psy-std/, config.json}
 ├── lib/            # psyup's own bash modules (installed by install.sh)
 ├── templates/      # cache (reserved, not used yet)
-├── env             # source this to add ~/.psy/bin to PATH + set DARGO_STD_PATH + RPC_CONFIG
+├── env             # POSIX shell env: PATH + DARGO_STD_PATH + RPC_CONFIG
+├── env.fish        # fish shell env: PATH + DARGO_STD_PATH + RPC_CONFIG
 ├── config.json     # RPC network config consumed by psy_user_cli (--rpc-config)
 └── settings.toml   # active version, default network
 ```
@@ -104,7 +105,9 @@ binaries are on PATH after install.
 
 After `psyup install`, `~/.psy/env` is rewritten to export
 `DARGO_STD_PATH=<toolchain-root>/lib/psy-std/std.psy` so the compiler can find
-the stdlib without falling back to a git clone. It also exports
+the stdlib without falling back to a git clone. `~/.psy/env.fish` is rewritten
+with the equivalent fish shell exports. The shell installer sources the matching
+env file from your shell rc. It also exports
 `RPC_CONFIG=~/.psy/config.json` for `psy_user_cli`. Runtime config at
 `~/.psy/config.json` is authoritative once present: `install.sh` installs it,
 and `psyup install/update` preserves it instead of overwriting it from an older
