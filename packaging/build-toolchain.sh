@@ -7,7 +7,7 @@
 # Environment:
 #     PSY_TOOLCHAIN_VERSION   Toolchain version. Default: v0.1.0
 #     VERSION                 Fallback version env var.
-#     PSY_TOOLCHAIN_BRANCH    Source branch. Default: feat/shield-poseidon-bridge
+#     PSY_TOOLCHAIN_BRANCH    Source branch. Default: feat/improve-bridge-relayer
 #     BRANCH                  Fallback branch env var.
 #     PARTH_REPO              parth-generic-v1 git URL.
 #     PSY_COMPILER_REPO       psy-compiler git URL.
@@ -29,7 +29,7 @@ version_input=${PSY_TOOLCHAIN_VERSION:-${VERSION:-v0.1.0}}
 version_no_v=${version_input#v}
 version="v${version_no_v}"
 
-branch=${PSY_TOOLCHAIN_BRANCH:-${BRANCH:-feat/shield-poseidon-bridge}}
+branch=${PSY_TOOLCHAIN_BRANCH:-${BRANCH:-feat/improve-bridge-relayer}}
 parth_repo=${PARTH_REPO:-git@github.com:QEDProtocol/parth-generic-v1.git}
 compiler_repo=${PSY_COMPILER_REPO:-git@github.com:QEDProtocol/psy-compiler.git}
 
