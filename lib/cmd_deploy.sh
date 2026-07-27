@@ -66,6 +66,7 @@ cmd_deploy() {
     [ -f Dargo.toml ] || die "no Dargo.toml in current directory"
     command -v psy_user_cli >/dev/null 2>&1 \
         || die "psy_user_cli not found in PATH (run 'psyup install' first)"
+    require_structured_results
 
     # --rpc-config / RPC_CONFIG (env passthrough)
     if [ -z "${RPC_CONFIG:-}" ] && [ -f "$PSY_HOME/config.json" ]; then
@@ -75,6 +76,13 @@ cmd_deploy() {
     # Private key resolution:
     #   1. PRIVATE_KEY env var (highest priority, for CI/automation)
     #   2. Keystore interactive password prompt
+    #
+    # NOTE: this is the ONE place psyup still scrapes a psy_user_cli log line
+    # (the `private_key:` field). deploy-contract only accepts --private-key /
+    # PRIVATE_KEY (DeployContractArgs has no --keystore-path), and the structured
+    # WalletInfoResult deliberately omits private keys — so there is no
+    # structured way to obtain the key here until deploy-contract grows keystore
+    # support. Everywhere else, psyup reads psy_user_cli results via --result-file.
     if [ -z "${PRIVATE_KEY:-}" ]; then
         local keystore_file="$PSY_HOME/keystore/default"
         if [ -f "$keystore_file" ]; then
@@ -130,51 +138,52 @@ cmd_deploy() {
         fi
     fi
 
-    # Run psy_user_cli with full output streamed to the user, then
-    # post-process to extract and persist the deployed contract uuid.
-    local log
-    log=$(mktemp)
+    # Run psy_user_cli; it streams human logs to the terminal and writes the
+    # structured DeployResult to $res. The contract uuid is read from the
+    # result file (DeployResult.tx_hash == contract_uuid), never scraped from
+    # the log text.
+    local res
+    res=$(mktemp)
     set +e
-    psy_user_cli deploy-contract --is-deploy "$@" 2>&1 | tee "$log"
-    local rc=${PIPESTATUS[0]}
+    psy_user_cli --result-file "$res" deploy-contract --is-deploy "$@"
+    local rc=$?
     set -e
 
     if [ "$rc" -eq 0 ]; then
-        local uuid
-        uuid=$(awk '
-            /contract deployed:/ {
-                for (i = 1; i <= NF; i++) if (length($i) >= 32 && $i ~ /^[0-9a-fA-F]+$/) print $i
-            }
-        ' "$log" | tail -n1)
-        if [ -n "$uuid" ]; then
-            say "✓ contract_uuid: $uuid"
-            # lookup_contract_id always prints the URL on line 1, and the
-            # numeric contract_id on line 2 if it succeeded (subshell vars
-            # can't propagate back, so we communicate via stdout).
-            local lookup_url="" cid=""
-            # Both reads are tolerant: lookup_contract_id may exit early with
-            # no output if config is missing.
-            {
-                read -r lookup_url || lookup_url=""
-                read -r cid        || cid=""
-            } < <(lookup_contract_id "$uuid")
-
-            if [ -n "$cid" ]; then
-                say "✓ contract_id:   $cid"
-                printf '{"contract_uuid":"%s","contract_id":%s}\n' "$uuid" "$cid" > .psy-deploy
-            else
-                # Lookup failed/timed out — put the GET URL into contract_id
-                # so the user can curl it manually later.
-                printf '{"contract_uuid":"%s","contract_id":"%s"}\n' \
-                    "$uuid" "${lookup_url:-unknown}" > .psy-deploy
-            fi
-            say "  saved to .psy-deploy"
-        else
-            warn "deploy succeeded but no contract uuid line found in output"
+        if [ ! -s "$res" ]; then
+            rm -f "$res"
+            die "deploy succeeded but psy_user_cli wrote no result file — toolchain output protocol incompatible"
         fi
+        local uuid
+        uuid=$(result_get "$res" tx_hash)
+        rm -f "$res"
+        [ -n "$uuid" ] || die "psy_user_cli deploy result missing tx_hash — toolchain output protocol incompatible"
+        say "✓ contract_uuid: $uuid"
+        # lookup_contract_id always prints the URL on line 1, and the
+        # numeric contract_id on line 2 if it succeeded (subshell vars
+        # can't propagate back, so we communicate via stdout).
+        local lookup_url="" cid=""
+        # Both reads are tolerant: lookup_contract_id may exit early with
+        # no output if config is missing.
+        {
+            read -r lookup_url || lookup_url=""
+            read -r cid        || cid=""
+        } < <(lookup_contract_id "$uuid")
+
+        if [ -n "$cid" ]; then
+            say "✓ contract_id:   $cid"
+            printf '{"contract_uuid":"%s","contract_id":%s}\n' "$uuid" "$cid" > .psy-deploy
+        else
+            # Lookup failed/timed out — put the GET URL into contract_id
+            # so the user can curl it manually later.
+            printf '{"contract_uuid":"%s","contract_id":"%s"}\n' \
+                "$uuid" "${lookup_url:-unknown}" > .psy-deploy
+        fi
+        say "  saved to .psy-deploy"
+    else
+        rm -f "$res"
     fi
 
-    rm -f "$log"
     exit "$rc"
 }
 

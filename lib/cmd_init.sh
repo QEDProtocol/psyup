@@ -1,53 +1,68 @@
 # psyup init — create default wallet and register on chain
 
-# Read wallet identifiers from a wallet (keystore + password).
-# Prints two TAB-separated fields on stdout: public_key_hash<TAB>public_key_param
-# Returns non-zero on failure with diagnostics on stderr.
-_read_wallet_ids_from_keystore() {
-    local keystore_file=$1 password=$2
-    local out rc=0
-    out=$(psy_user_cli wallet info --keystore-path "$keystore_file" --wallet-password "$password" 2>&1) || rc=$?
-    if [ "$rc" -ne 0 ]; then
-        printf '%s\n' "$out" >&2
+# Read a wallet's public_key_hash from its keystore via `wallet info`, using the
+# structured WalletInfoResult (--result-file). Prints the public_key_hash on
+# stdout and returns non-zero on failure. No private keys are handled.
+_read_wallet_public_key_hash() {
+    local keystore_file=$1 password=$2 res rc pkh
+    res=$(mktemp)
+    # Discard stdout (human logs incl. the private_key line); read the key from $res.
+    psy_user_cli --result-file "$res" wallet info \
+        --keystore-path "$keystore_file" --wallet-password "$password" >/dev/null || rc=$?
+    if [ "${rc:-0}" -ne 0 ]; then
+        rm -f "$res"
         return 1
     fi
-    local pkh pkp
-    pkh=$(printf '%s\n' "$out" | awk '/public_key:/ {print $2; exit}')
-    pkp=$(printf '%s\n' "$out" | awk '/public_key_param:/ {print $2; exit}')
-    if [ -z "$pkh" ] || [ -z "$pkp" ]; then
-        printf '%s\n' "$out" >&2
-        return 1
-    fi
-    printf '%s\t%s\n' "$pkh" "$pkp"
+    pkh=$(result_get "$res" public_key_hash)
+    rm -f "$res"
+    [ -n "$pkh" ] || return 1
+    printf '%s\n' "$pkh"
 }
 
-# Poll until a registered wallet becomes readable via get-user-id.
-# Prints the user_id on stdout and returns 0 when visible.
+# Submit a register-user request for a keystore. Prints "<status>\t<user_id>"
+# (user_id empty unless already registered) and returns the psy_user_cli exit
+# status. "pending" means the registration was submitted but no user_id yet.
+_register_user() {
+    local keystore_file=$1 password=$2 res rc status user_id
+    res=$(mktemp)
+    psy_user_cli --result-file "$res" register-user \
+        --keystore-path "$keystore_file" --wallet-password "$password" --sign-type zk >/dev/null || rc=$?
+    rc=${rc:-0}
+    if [ "$rc" -eq 0 ]; then
+        status=$(result_get "$res" status)
+        user_id=$(result_get "$res" user_id)
+    fi
+    rm -f "$res"
+    printf '%s\t%s\n' "${status:-}" "${user_id:-}"
+    return "$rc"
+}
+
+# Poll until a registered wallet becomes visible via get-user-id. Prints the
+# user_id on stdout and returns 0 once status=registered.
 _wait_for_user_id() {
     local rpc_config=$1 public_key_hash=$2 attempts=${3:-30}
-    local i out rc user_id
+    local i line rc status user_id
 
     say "waiting for user_id to become visible on $(get_current_network)..."
     for i in $(seq 1 "$attempts"); do
-        out=$(RPC_CONFIG="$rpc_config" psy_user_cli get-user-id --pub-key "$public_key_hash" 2>&1) || rc=$?
+        line=$(query_user_id "$rpc_config" "$public_key_hash") || rc=$?
         rc=${rc:-0}
-        if [ "$rc" -eq 0 ]; then
-            user_id=$(printf '%s\n' "$out" | awk '/user_id:/ {print $2; exit}')
-            if [ -n "$user_id" ]; then
-                printf '%s\n' "$user_id"
-                return 0
-            fi
-        elif ! printf '%s\n' "$out" | grep -q 'no user ids found'; then
-            printf '%s\n' "$out" >&2
-            return 1
+        [ "$rc" -eq 0 ] || return 1   # real RPC/transport error, stop waiting
+        status=${line%%$'\t'*}
+        if [ "$status" = "registered" ]; then
+            user_id=${line#*$'\t'}
+            printf '%s\n' "$user_id"
+            return 0
         fi
-        sleep 1
         rc=0
+        sleep 1
     done
     return 1
 }
 
 cmd_init() {
+    require_structured_results
+
     local keystore_dir="$PSY_HOME/keystore"
     local keystore_file="$keystore_dir/default"
     local rpc_config="$PSY_HOME/config.json"
@@ -63,34 +78,19 @@ cmd_init() {
         local password="$WALLET_PASSWORD"
         unset WALLET_PASSWORD
 
-        local wallet_ids public_key_hash pub_key
-        wallet_ids=$(_read_wallet_ids_from_keystore "$keystore_file" "$password") \
+        local public_key_hash
+        public_key_hash=$(_read_wallet_public_key_hash "$keystore_file" "$password") \
             || die "failed to read wallet info; check keystore password"
-        public_key_hash=$(printf '%s\n' "$wallet_ids" | cut -f1)
-        pub_key=$(printf '%s\n' "$wallet_ids" | cut -f2)
 
-        say "public_key_param: $pub_key"
-        say ""
-
-        local id_out id_rc=0
-        id_out=$(RPC_CONFIG="$rpc_config" psy_user_cli get-user-id --pub-key "$public_key_hash" 2>&1) || id_rc=$?
-        local user_id=""
-        if [ "$id_rc" -ne 0 ]; then
-            case "$id_out" in
-                *"no user ids found"*)
-                    user_id=""
-                    ;;
-                *)
-                    printf '%s\n' "$id_out" >&2
-                    password=""
-                    die "get-user-id failed; is RPC reachable? (network: $(get_current_network))"
-                    ;;
-            esac
-        else
-            user_id=$(printf '%s\n' "$id_out" | awk '/user_id:/ {print $2; exit}')
+        local line rc=0 status user_id=""
+        line=$(query_user_id "$rpc_config" "$public_key_hash") || rc=$?
+        if [ "$rc" -ne 0 ]; then
+            password=""
+            die "get-user-id failed; is RPC reachable? (network: $(get_current_network))"
         fi
-
-        if [ -n "$user_id" ]; then
+        status=${line%%$'\t'*}
+        user_id=${line#*$'\t'}
+        if [ "$status" = "registered" ] && [ -n "$user_id" ]; then
             say "✅ user already registered (user_id: $user_id, network: $(get_current_network))"
             password=""
             return 0
@@ -99,14 +99,19 @@ cmd_init() {
         say "user not registered on the current network ($(get_current_network))"
         say "registering on chain..."
 
-        local rc=0
-        RPC_CONFIG="$rpc_config" psy_user_cli register-user \
-            --keystore-path "$keystore_file" \
-            --wallet-password "$password" \
-            --sign-type zk 2>&1 || rc=$?
+        local rline rrc=0 rstatus ruser_id
+        rline=$(_register_user "$keystore_file" "$password") || rrc=$?
         password=""
 
-        if [ "$rc" -eq 0 ]; then
+        if [ "$rrc" -eq 0 ]; then
+            rstatus=${rline%%$'\t'*}
+            ruser_id=${rline#*$'\t'}
+            if [ "$rstatus" = "registered" ] && [ -n "$ruser_id" ]; then
+                say "✅ registered on chain"
+                say "✅ user_id: $ruser_id"
+                return 0
+            fi
+            # pending: registration submitted, poll until the user_id is visible.
             local registered_user_id=""
             registered_user_id=$(_wait_for_user_id "$rpc_config" "$public_key_hash" 30) || {
                 say "⚠️ registration submitted, but user_id is not visible yet"
@@ -119,7 +124,7 @@ cmd_init() {
         else
             say "⚠️ registration failed"
             say "  Manual: psy_user_cli register-user --keystore-path $keystore_file --sign-type zk"
-            return "$rc"
+            return "$rrc"
         fi
     fi
 
@@ -133,44 +138,34 @@ cmd_init() {
     local password="$WALLET_PASSWORD"
     unset WALLET_PASSWORD
 
-    local rc=0
-    psy_user_cli wallet create --output "$keystore_file" --password "$password" 2>&1 || rc=$?
+    # wallet create writes the WalletCreateResult (with public_key_hash), so we
+    # read the key straight from the result instead of a second `wallet info`.
+    local rc=0 res public_key_hash
+    res=$(mktemp)
+    psy_user_cli --result-file "$res" wallet create --output "$keystore_file" --password "$password" >/dev/null || rc=$?
     if [ "$rc" -ne 0 ]; then
+        rm -f "$res"
         password=""
         die "failed to create wallet"
     fi
-
-    local wallet_ids public_key_hash pub_key
-    wallet_ids=$(_read_wallet_ids_from_keystore "$keystore_file" "$password") \
-        || { password=""; die "wallet created but failed to read its info"; }
-    public_key_hash=$(printf '%s\n' "$wallet_ids" | cut -f1)
-    pub_key=$(printf '%s\n' "$wallet_ids" | cut -f2)
+    public_key_hash=$(result_get "$res" public_key_hash)
+    rm -f "$res"
+    [ -n "$public_key_hash" ] || { password=""; die "wallet created but result missing public_key_hash"; }
 
     say ""
     say "✅ wallet created"
     say "keystore: $keystore_file"
-    say "public_key_param: $pub_key"
-    say ""
 
     say "checking if user is already registered..."
-    local id_out id_rc=0
-    id_out=$(RPC_CONFIG="$rpc_config" psy_user_cli get-user-id --pub-key "$public_key_hash" 2>&1) || id_rc=$?
-    local user_id=""
-    if [ "$id_rc" -ne 0 ]; then
-        case "$id_out" in
-            *"no user ids found"*)
-                user_id=""
-                ;;
-            *)
-                printf '%s\n' "$id_out" >&2
-                password=""
-                die "get-user-id failed; is RPC reachable? (network: $(get_current_network))"
-                ;;
-        esac
-    else
-        user_id=$(printf '%s\n' "$id_out" | awk '/user_id:/ {print $2; exit}')
+    local line qrc=0 status user_id=""
+    line=$(query_user_id "$rpc_config" "$public_key_hash") || qrc=$?
+    if [ "$qrc" -ne 0 ]; then
+        password=""
+        die "get-user-id failed; is RPC reachable? (network: $(get_current_network))"
     fi
-    if [ -n "$user_id" ]; then
+    status=${line%%$'\t'*}
+    user_id=${line#*$'\t'}
+    if [ "$status" = "registered" ] && [ -n "$user_id" ]; then
         say "✅ user already registered (user_id: $user_id)"
         password=""
         return 0
@@ -178,14 +173,18 @@ cmd_init() {
 
     say ""
     say "registering on chain..."
-    local rc2=0
-    RPC_CONFIG="$rpc_config" psy_user_cli register-user \
-        --keystore-path "$keystore_file" \
-        --wallet-password "$password" \
-        --sign-type zk 2>&1 || rc2=$?
+    local rline rrc2=0 rstatus ruser_id
+    rline=$(_register_user "$keystore_file" "$password") || rrc2=$?
     password=""
 
-    if [ "$rc2" -eq 0 ]; then
+    if [ "$rrc2" -eq 0 ]; then
+        rstatus=${rline%%$'\t'*}
+        ruser_id=${rline#*$'\t'}
+        if [ "$rstatus" = "registered" ] && [ -n "$ruser_id" ]; then
+            say "✅ registered on chain"
+            say "✅ user_id: $ruser_id"
+            return 0
+        fi
         local registered_user_id=""
         registered_user_id=$(_wait_for_user_id "$rpc_config" "$public_key_hash" 30) || {
             say "⚠️ registration submitted, but user_id is not visible yet"
@@ -199,6 +198,6 @@ cmd_init() {
         say "⚠️ registration failed"
         say "  To register manually, run:"
         say "  psy_user_cli register-user --keystore-path $keystore_file --sign-type zk"
-        return "$rc2"
+        return "$rrc2"
     fi
 }

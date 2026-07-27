@@ -38,6 +38,8 @@ PY
 }
 
 cmd_worker() {
+    require_structured_results
+
     local keystore_dir="$PSY_HOME/keystore"
     local keystore_file="$keystore_dir/default"
     local rpc_config="$PSY_HOME/config.json"
@@ -60,66 +62,65 @@ cmd_worker() {
     fi
 
     local public_key_hash=""
-    local pub_key=""
-    local resolved_private_key=""
-    local wallet_password=""
+    # Credential args forwarded straight to psy_worker_cli. For a keystore we
+    # pass --keystore-path and the password via env (never a private key).
+    local credential_args=()
 
     if [ "$has_private_key" -eq 1 ]; then
         say "using PRIVATE_KEY for identity"
-        local info_out info_rc=0
-        info_out=$(psy_user_cli wallet info --private-key "$private_key" 2>&1) || info_rc=$?
-        if [ "$info_rc" -ne 0 ]; then
-            printf '%s\n' "$info_out" >&2
+        local res rc
+        res=$(mktemp)
+        # Discard stdout (human logs incl. the private_key line); read the key from $res.
+        psy_user_cli --result-file "$res" wallet info --private-key "$private_key" >/dev/null || rc=$?
+        if [ "${rc:-0}" -ne 0 ]; then
+            rm -f "$res"
             die "failed to derive public key from PRIVATE_KEY"
         fi
-        public_key_hash=$(printf '%s\n' "$info_out" | awk '/public_key:/ {print $2; exit}')
-        pub_key=$(printf '%s\n' "$info_out" | awk '/public_key_param:/ {print $2; exit}')
-        resolved_private_key="$private_key"
+        public_key_hash=$(result_get "$res" public_key_hash)
+        rm -f "$res"
         [ -n "$public_key_hash" ] || die "wallet info did not contain public_key (private key invalid?)"
-        [ -n "$pub_key" ] || die "wallet info did not contain public_key_param (private key invalid?)"
+        credential_args+=(--private-key "$private_key")
     else
         if [ -z "${WALLET_PASSWORD:-}" ]; then
             printf 'Enter keystore password: ' >&2
             IFS= read -rs WALLET_PASSWORD
             printf '\n' >&2
         fi
-        wallet_password="$WALLET_PASSWORD"
+        local wallet_password="$WALLET_PASSWORD"
         unset WALLET_PASSWORD
 
-        local info_out info_rc=0
-        info_out=$(psy_user_cli wallet info --keystore-path "$keystore_file" --wallet-password "$wallet_password" 2>&1) || info_rc=$?
-        if [ "$info_rc" -ne 0 ]; then
-            printf '%s\n' "$info_out" >&2
+        local res rc
+        res=$(mktemp)
+        psy_user_cli --result-file "$res" wallet info \
+            --keystore-path "$keystore_file" --wallet-password "$wallet_password" >/dev/null || rc=$?
+        if [ "${rc:-0}" -ne 0 ]; then
+            rm -f "$res"
             die "failed to read wallet info; check keystore password"
         fi
-        public_key_hash=$(printf '%s\n' "$info_out" | awk '/public_key:/ {print $2; exit}')
-        pub_key=$(printf '%s\n' "$info_out" | awk '/public_key_param:/ {print $2; exit}')
-        resolved_private_key=$(printf '%s\n' "$info_out" | awk '/private_key:/ {print $2; exit}')
+        public_key_hash=$(result_get "$res" public_key_hash)
+        rm -f "$res"
         [ -n "$public_key_hash" ] || die "wallet info did not contain public_key (corrupt keystore?)"
-        [ -n "$pub_key" ] || die "wallet info did not contain public_key_param (corrupt keystore?)"
-        [ -n "$resolved_private_key" ] || die "wallet info did not contain private_key (corrupt keystore?)"
+
+        # Forward the keystore straight to psy_worker_cli (no private key ever
+        # passes through psyup). The worker binds WALLET_PASSWORD from env, so
+        # export it rather than exposing it on the command line.
+        credential_args+=(--keystore-path "$keystore_file")
+        export WALLET_PASSWORD="$wallet_password"
+        wallet_password=""
     fi
 
     say "resolving user_id..."
-    local id_out id_rc=0
-    id_out=$(RPC_CONFIG="$rpc_config" psy_user_cli get-user-id --pub-key "$public_key_hash" 2>&1) || id_rc=$?
-    if [ "$id_rc" -ne 0 ]; then
-        printf '%s\n' "$id_out" >&2
-        case "$id_out" in
-            *"no user ids found"*)
-                die "no user_id found for this wallet on $(get_current_network); run 'psyup init' to register"
-                ;;
-            *"Connection error"*|*"error sending request"*|*"timed out"*|*"dns error"*)
-                die "get-user-id failed; is RPC reachable? (network: $(get_current_network))"
-                ;;
-            *)
-                die "get-user-id failed on $(get_current_network)"
-                ;;
-        esac
+    local line qrc=0 status
+    line=$(query_user_id "$rpc_config" "$public_key_hash") || qrc=$?
+    if [ "$qrc" -ne 0 ]; then
+        unset WALLET_PASSWORD 2>/dev/null || true
+        die "get-user-id failed; is RPC reachable? (network: $(get_current_network))"
     fi
-    user_id=$(printf '%s\n' "$id_out" | awk '/user_id:/ {print $2; exit}')
-    if [ -z "$user_id" ]; then
-        die "failed to resolve user_id; is this wallet registered on $(get_current_network)? Run 'psyup init' to register."
+    status=${line%%$'\t'*}
+    user_id=${line#*$'\t'}
+    if [ "$status" != "registered" ] || [ -z "$user_id" ]; then
+        unset WALLET_PASSWORD 2>/dev/null || true
+        die "no user_id found for this wallet on $(get_current_network); run 'psyup init' to register"
     fi
 
     say "✅ user_id: $user_id (network: $(get_current_network))"
@@ -128,7 +129,7 @@ cmd_worker() {
     say ""
 
     local worker_args=()
-    worker_args+=("--private-key" "$resolved_private_key")
+    worker_args+=("${credential_args[@]}")
     worker_args+=("--user" "$user_id")
 
     # Worker network enum is fixed for this workflow and is independent of
@@ -174,6 +175,8 @@ EOF
 
     local worker_rc=0
     psy_worker_cli worker "${worker_args[@]}" || worker_rc=$?
-    wallet_password=""
+
+    # Clear any exported wallet password now that the worker has exited.
+    unset WALLET_PASSWORD 2>/dev/null || true
     return "$worker_rc"
 }

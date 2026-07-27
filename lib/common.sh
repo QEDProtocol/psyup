@@ -89,3 +89,53 @@ if network not in nets:
 PY
     [ $? -eq 0 ] || die "invalid default network '$network' for $config_file"
 }
+
+# --- Structured psy_user_cli result protocol (--result-file) ---------------
+#
+# psy_user_cli accepts a global `--result-file <path>` and writes exactly one
+# typed CommandResult as pretty JSON there (stdout/stderr stay human logs and
+# are NOT parsed). These helpers read those result files. See
+# structured_cli_protocol.plan.md.
+
+# Ensure the installed toolchain can speak the result protocol, and that we can
+# parse its output. Dies with an actionable upgrade message instead of silently
+# falling back to log scraping (spec §15).
+require_structured_results() {
+    need jq
+    psy_user_cli --help 2>&1 | grep -q -- '--result-file' \
+        || die "installed psy_user_cli is too old (no --result-file support); run 'psyup update'"
+}
+
+# Read one top-level field from a result file. Prints empty for null/missing.
+result_get() {  # result_get <file> <key>
+    jq -r --arg k "$2" '.[$k] // empty' "$1"
+}
+
+# Read one top-level field that must be non-empty, else treat it as a protocol
+# incompatibility (the toolchain produced a result we don't understand).
+result_require() {  # result_require <file> <key> <label>
+    local v
+    v=$(result_get "$1" "$2")
+    [ -n "$v" ] || die "psy_user_cli result missing/empty '$2' ($3) — toolchain output protocol incompatible"
+    printf '%s\n' "$v"
+}
+
+# Resolve a wallet's on-chain registration via `get-user-id`. Prints
+# "<status>\t<user_id>" (user_id empty unless registered) and returns the
+# psy_user_cli exit status. A non-zero return is a real RPC/transport failure;
+# "not_registered" is a normal business result returned with exit 0.
+query_user_id() {  # query_user_id <rpc_config> <public_key_hash>
+    local rpc_config=$1 public_key_hash=$2 res rc status user_id
+    res=$(mktemp)
+    # The result is read from $res; discard psy_user_cli's stdout (human logs,
+    # incl. the private_key line) so it can't pollute this helper's return value.
+    RPC_CONFIG="$rpc_config" psy_user_cli --result-file "$res" get-user-id --pub-key "$public_key_hash" >/dev/null || rc=$?
+    rc=${rc:-0}
+    if [ "$rc" -eq 0 ]; then
+        status=$(result_get "$res" status)
+        user_id=$(result_get "$res" user_id)
+    fi
+    rm -f "$res"
+    printf '%s\t%s\n' "${status:-}" "${user_id:-}"
+    return "$rc"
+}

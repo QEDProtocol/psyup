@@ -47,6 +47,16 @@ echo "dargo 0.0.0"
 EOF
 cat > "$PSY_HOME/toolchains/psy-0.0.0/bin/psy_user_cli" <<'EOF'
 #!/usr/bin/env bash
+
+# Top-level --help advertises capabilities. --abi-path and --result-file can be
+# hidden via env to simulate older toolchains.
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    echo "Usage: psy_user_cli [OPTIONS] <COMMAND>"
+    [ -z "${PSY_USER_CLI_NO_RESULT_FILE_HELP:-}" ] && echo "      --result-file <RESULT_FILE>"
+    echo "Commands: deploy-contract, wallet, get-user-id, register-user"
+    exit 0
+fi
+
 if [ "$1" = "deploy-contract" ] && [ "${2:-}" = "--help" ]; then
     echo "Usage: psy_user_cli deploy-contract [OPTIONS]"
     if [ -z "${PSY_USER_CLI_NO_ABI_HELP:-}" ]; then
@@ -54,12 +64,39 @@ if [ "$1" = "deploy-contract" ] && [ "${2:-}" = "--help" ]; then
     fi
     exit 0
 fi
+
+# Pull the global --result-file <path> out of argv so it isn't echoed back.
+result_file=""
+new=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --result-file) shift; result_file=${1:-} ;;
+        --result-file=*) result_file=${1#--result-file=} ;;
+        *) new+=("$1") ;;
+    esac
+    shift || true
+done
+set -- "${new[@]}"
+
 echo "psy_user_cli invoked: $* RPC_CONFIG=${RPC_CONFIG:-unset}"
-if [ "$1" = "deploy-contract" ]; then
-    # Mimic the real deploy_contract.rs:68 log line so cmd_deploy's uuid
-    # extractor has something to match.
-    echo "client_prover/psy_cli/psy_user_cli/src/subcommand/deploy_contract.rs:68: contract deployed: 44684652986c3dc870aa15812544b2b1701a0c16cc2b97281ae6cc9aa4b729de"
+
+# Write the structured result (--result-file), unless the caller asked us to
+# simulate a toolchain that doesn't write one (protocol-error test).
+if [ -n "$result_file" ] && [ -z "${PSY_USER_CLI_NO_RESULT:-}" ]; then
+    case "$1" in
+        deploy-contract)
+            printf '{"contract_id":null,"tx_hash":"44684652986c3dc870aa15812544b2b1701a0c16cc2b97281ae6cc9aa4b729de","network":"test","status":"submitted"}\n' > "$result_file" ;;
+        wallet)
+            printf '{"public_key_hash":"0d47fda4480f045506b085ba6921fc86d8cc6feb1b533292db4b1a3af8f89eab","keystore_path":null}\n' > "$result_file" ;;
+        get-user-id)
+            printf '{"public_key_hash":"0d47fda4480f045506b085ba6921fc86d8cc6feb1b533292db4b1a3af8f89eab","user_id":%s,"status":"%s"}\n' \
+                "${PSY_USER_CLI_USER_ID:-42}" "${PSY_USER_CLI_REG_STATUS:-registered}" > "$result_file" ;;
+        register-user)
+            printf '{"public_key_hash":"0d47fda4480f045506b085ba6921fc86d8cc6feb1b533292db4b1a3af8f89eab","user_id":%s,"transaction_hash":"abc","status":"%s"}\n' \
+                "${PSY_USER_CLI_USER_ID:-42}" "${PSY_USER_CLI_REG_STATUS:-registered}" > "$result_file" ;;
+    esac
 fi
+exit 0
 EOF
 # The other four binaries just exist to verify install symlinks them all.
 for b in psy_worker_cli psy_node_cli psy_dev_cli psy_relayer_cli; do
@@ -176,13 +213,14 @@ echo "$override_out" | grep -q 'dargo: generated ABI target/demo.abi.json' \
 echo "$override_out" | grep -q 'detected contract:' \
     && { echo "FAIL: should not auto-detect when user passed --contract-name"; exit 1; } || true
 
-# 7a. deploy passes through to psy_user_cli with user-supplied args
-out=$("$repo_root/psyup" deploy --private-key 0xdead --contract-path build/main.psyc 2>&1)
+# 7a. deploy passes through to psy_user_cli with user-supplied args.
+# Identity comes from PRIVATE_KEY env (the supported path — see 7b); the
+# forwarded args here are --contract-path and the auto-filled --abi-path.
+out=$(PRIVATE_KEY=0xdead "$repo_root/psyup" deploy --contract-path build/main.psyc 2>&1)
 echo "$out" | grep -q 'psy_user_cli invoked: deploy-contract --is-deploy' \
     || { echo "FAIL: deploy didn't invoke psy_user_cli correctly"; echo "$out"; exit 1; }
 echo "$out" | grep -q "RPC_CONFIG=$PSY_HOME/config.json" \
     || { echo "FAIL: deploy didn't export RPC_CONFIG"; echo "$out"; exit 1; }
-echo "$out" | grep -q -- "--private-key 0xdead" || { echo "FAIL: --private-key passthrough lost"; exit 1; }
 echo "$out" | grep -q -- "--contract-path build/main.psyc" \
     || { echo "FAIL: --contract-path passthrough lost"; exit 1; }
 echo "$out" | grep -q -- "--abi-path target/demo.abi.json" \
@@ -228,8 +266,8 @@ echo "$out" | grep -q "does not advertise --abi-path" \
 echo "$out" | grep -q -- "psy_user_cli invoked: .*--abi-path" \
     && { echo "FAIL: should not pass --abi-path when psy_user_cli does not support it"; echo "$out"; exit 1; } || true
 
-# 7d. successful deploy extracts contract_uuid and writes .psy-deploy
-out=$("$repo_root/psyup" deploy 2>&1)
+# 7d. successful deploy reads tx_hash from the result file and writes .psy-deploy
+out=$(PRIVATE_KEY=0xbeef "$repo_root/psyup" deploy 2>&1)
 echo "$out" | grep -q '✓ contract_uuid: 44684652986c3dc870aa15812544b2b1701a0c16cc2b97281ae6cc9aa4b729de' \
     || { echo "FAIL: contract_uuid not extracted"; echo "$out"; exit 1; }
 [ -f .psy-deploy ] || { echo "FAIL: .psy-deploy not written"; exit 1; }
@@ -244,6 +282,18 @@ if "$repo_root/psyup" deploy 2>/dev/null; then
     echo "FAIL: deploy should error when no compiled artifact exists"
     exit 1
 fi
+
+# 7f. old psy_user_cli without --result-file support → explicit upgrade error,
+#     not a silent fallback to log scraping. (deploy is expected to fail here,
+#     so neutralize set -e around the capture.)
+out=$(PSY_USER_CLI_NO_RESULT_FILE_HELP=1 PRIVATE_KEY=0xbeef "$repo_root/psyup" deploy --contract-path other.json 2>&1) || true
+echo "$out" | grep -q "too old (no --result-file support)" \
+    || { echo "FAIL: missing upgrade error for old psy_user_cli"; echo "$out"; exit 1; }
+
+# 7g. psy_user_cli exits 0 but writes no result file → protocol-incompatible error.
+out=$(PSY_USER_CLI_NO_RESULT=1 PRIVATE_KEY=0xbeef "$repo_root/psyup" deploy --contract-path other.json 2>&1) || true
+echo "$out" | grep -q "protocol incompatible" \
+    || { echo "FAIL: missing protocol-incompatible error"; echo "$out"; exit 1; }
 
 # 8. build error when no manifest
 cd "$work"
@@ -353,5 +403,43 @@ echo "$fallback_out" | grep -q 'falling back to 0.1.0' \
     || { echo "FAIL: latest fallback message missing"; echo "$fallback_out"; exit 1; }
 grep -q 'active = "0.1.0"' "$fallback_home/settings.toml" \
     || { echo "FAIL: latest fallback did not install 0.1.0"; cat "$fallback_home/settings.toml"; exit 1; }
+
+# 10. init (offline, stubbed): create wallet → already-registered fast path,
+#     reading wallet / get-user-id results via --result-file (no log scraping).
+init_home="$work/.psy-init"
+mkdir -p "$init_home/bin" "$init_home/toolchains/psy-0.0.0/bin"
+cp "$PSY_HOME/toolchains/psy-0.0.0/bin/psy_user_cli" "$init_home/toolchains/psy-0.0.0/bin/psy_user_cli"
+chmod +x "$init_home/toolchains/psy-0.0.0/bin/psy_user_cli"
+ln -sf "$init_home/toolchains/psy-0.0.0/bin/psy_user_cli" "$init_home/bin/psy_user_cli"
+printf '{"defaultNetwork":"test","networks":{"test":{}}}\n' > "$init_home/config.json"
+# No keystore present → Case 2 (create). Feed the new-wallet password on stdin;
+# get-user-id stub defaults to registered + user_id 42.
+init_out=$(printf 'pass\n' | PSY_HOME="$init_home" PATH="$init_home/bin:/usr/bin:/bin" \
+    "$repo_root/psyup" init 2>&1) || true
+echo "$init_out" | grep -q 'user already registered (user_id: 42)' \
+    || { echo "FAIL: init did not reach already-registered path"; echo "$init_out"; exit 1; }
+
+# 11. worker (offline, stubbed): keystore path forwards --keystore-path and the
+#     password via env to psy_worker_cli; no --private-key is exported by psyup.
+worker_home="$work/.psy-worker"
+mkdir -p "$worker_home/bin" "$worker_home/keystore" "$worker_home/toolchains/psy-0.0.0/bin"
+cp "$PSY_HOME/toolchains/psy-0.0.0/bin/psy_user_cli" "$worker_home/toolchains/psy-0.0.0/bin/psy_user_cli"
+cat > "$worker_home/toolchains/psy-0.0.0/bin/psy_worker_cli" <<'EOF'
+#!/usr/bin/env bash
+echo "psy_worker_cli invoked: $*"
+EOF
+chmod +x "$worker_home/toolchains/psy-0.0.0/bin/"*
+ln -sf "$worker_home/toolchains/psy-0.0.0/bin/psy_user_cli"   "$worker_home/bin/psy_user_cli"
+ln -sf "$worker_home/toolchains/psy-0.0.0/bin/psy_worker_cli" "$worker_home/bin/psy_worker_cli"
+: > "$worker_home/keystore/default"   # presence selects the keystore path
+printf '{"defaultNetwork":"test","networks":{"test":{}}}\n' > "$worker_home/config.json"
+worker_out=$(PRIVATE_KEY= WALLET_PASSWORD=pass PSY_HOME="$worker_home" PATH="$worker_home/bin:/usr/bin:/bin" \
+    "$repo_root/psyup" worker 2>&1) || true
+echo "$worker_out" | grep -q -- "--keystore-path" \
+    || { echo "FAIL: worker should forward --keystore-path"; echo "$worker_out"; exit 1; }
+echo "$worker_out" | grep -q -- "--user 42" \
+    || { echo "FAIL: worker should pass --user 42"; echo "$worker_out"; exit 1; }
+echo "$worker_out" | grep -q -- "--private-key" \
+    && { echo "FAIL: worker must not forward --private-key in keystore mode"; echo "$worker_out"; exit 1; } || true
 
 echo "OK: all smoke checks passed"
