@@ -174,8 +174,13 @@ tarball="$dist/${toolchain_dirname}.tar.gz"
 clone_or_update "$parth_repo" "$parth_dir"
 clone_or_update "$compiler_repo" "$compiler_dir"
 
-build_repo "$parth_dir"
+# Build the compiler first, then regenerate genesis (genesis_contracts.json +
+# genesis_abi/ inside parth) so the parth binaries built next embed it.
+# gen-deploy-json needs parth cloned (reads/writes its genesis) but not built,
+# and $(PWD)/../parth-generic-v1 resolves to $parth_dir from $compiler_dir.
 build_repo "$compiler_dir"
+( cd "$compiler_dir" && make gen-deploy-json )
+build_repo "$parth_dir"
 
 echo "==> Staging $toolchain_dirname"
 rm -rf "$stage"
