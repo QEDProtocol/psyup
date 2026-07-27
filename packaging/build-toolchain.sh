@@ -8,6 +8,8 @@
 #     PSY_TOOLCHAIN_VERSION   Toolchain version. Default: v0.1.0
 #     VERSION                 Fallback version env var.
 #     PSY_TOOLCHAIN_BRANCH    Source branch. Default: feat/improve-bridge-relayer
+#                             If the requested branch is absent on a repo's
+#                             origin, falls back to the default above.
 #     BRANCH                  Fallback branch env var.
 #     PARTH_REPO              parth-generic-v1 git URL.
 #     PSY_COMPILER_REPO       psy-compiler git URL.
@@ -29,7 +31,8 @@ version_input=${PSY_TOOLCHAIN_VERSION:-${VERSION:-v0.1.0}}
 version_no_v=${version_input#v}
 version="v${version_no_v}"
 
-branch=${PSY_TOOLCHAIN_BRANCH:-${BRANCH:-feat/improve-bridge-relayer}}
+default_branch=feat/improve-bridge-relayer
+requested_branch=${PSY_TOOLCHAIN_BRANCH:-${BRANCH:-$default_branch}}
 parth_repo=${PARTH_REPO:-git@github.com:QEDProtocol/parth-generic-v1.git}
 compiler_repo=${PSY_COMPILER_REPO:-git@github.com:QEDProtocol/psy-compiler.git}
 
@@ -55,13 +58,28 @@ infer_triple() {
 
 triple=${PSY_TOOLCHAIN_TRIPLE:-$(infer_triple)}
 
+# Pick the branch to build for $dir: the requested branch if it exists on
+# origin, otherwise fall back to $default_branch. Errors if neither exists.
+resolve_branch() {
+    local dir=$1 requested=$2 default=$3
+    if git -C "$dir" rev-parse --verify --quiet "origin/$requested" >/dev/null; then
+        echo "$requested"
+    elif git -C "$dir" rev-parse --verify --quiet "origin/$default" >/dev/null; then
+        echo "psyup: warning: branch '$requested' not found in $(basename "$dir"); falling back to '$default'" >&2
+        echo "$default"
+    else
+        echo "error: neither branch '$requested' nor default '$default' exists in $(basename "$dir")" >&2
+        return 1
+    fi
+}
+
 clone_or_update() {
     local url=$1
     local dir=$2
 
     if [ -d "$dir/.git" ]; then
         echo "==> Updating $(basename "$dir")"
-        git -C "$dir" fetch origin "$branch"
+        git -C "$dir" fetch origin
     elif [ -e "$dir" ]; then
         echo "error: $dir exists but is not a git checkout" >&2
         return 1
@@ -70,8 +88,11 @@ clone_or_update() {
         git clone "$url" "$dir"
     fi
 
-    git -C "$dir" checkout "$branch"
-    git -C "$dir" pull --ff-only origin "$branch"
+    local effective
+    effective=$(resolve_branch "$dir" "$requested_branch" "$default_branch") || return 1
+
+    git -C "$dir" checkout "$effective"
+    git -C "$dir" pull --ff-only origin "$effective"
 }
 
 build_repo() {
