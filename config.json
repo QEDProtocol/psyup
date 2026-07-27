@@ -31,6 +31,9 @@
       "prove_proxy_url": [
         "http://127.0.0.1:9999"
       ],
+      "faucet_rpc_url": [
+        "http://127.0.0.1:9998"
+      ],
       "api_services_url": [
         "http://127.0.0.1:3000"
       ],
@@ -92,6 +95,9 @@
       "prove_proxy_url": [
         "https://prove-stg.psy-protocol.xyz"
       ],
+      "faucet_rpc_url": [
+        "https://faucet-stg.psy-protocol.xyz"
+      ],
       "api_services_url": [
         "https://services-stg.psy-protocol.xyz"
       ],
@@ -116,7 +122,7 @@
       },
       "anvilForkSourceUrlEnv": "SEPOLIA_RPC_URL",
       "l1_rpc_urls": [
-        "https://rpc-stg.psy-protocol.xyz"
+        "https://ethereum-sepolia-rpc.publicnode.com"
       ]
     },
     "ethereum": {
@@ -148,6 +154,9 @@
         }
       ],
       "prove_proxy_url": [
+        "https://prove.psy.xyz"
+      ],
+      "faucet_rpc_url": [
         "https://prove.psy.xyz"
       ],
       "api_services_url": [
