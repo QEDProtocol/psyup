@@ -127,8 +127,19 @@ cmd_build() {
         return 0
     fi
 
+    # generate-abi's -c/--contract-name wants the contract TYPE name (e.g.
+    # PsyTokenContractRef), not the package name. Reuse the --contract-name
+    # passed to compile (user-supplied or auto-detected from #[contract]);
+    # --abi-name keeps the output file at target/<package>.abi.json.
+    local contract_ref
+    contract_ref=$(arg_value --contract-name "$@" || true)
+    if [ -z "$contract_ref" ]; then
+        warn "could not detect contract name (#[contract]); skipping ABI generation"
+        return 0
+    fi
+
     local -a abi_args
-    abi_args=(-c "${package_name}.abi")
+    abi_args=(-c "$contract_ref" --abi-name "$package_name")
     if [ -n "$entry_path" ]; then
         abi_args+=(--entry-path "$entry_path")
     fi

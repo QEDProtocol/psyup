@@ -29,18 +29,22 @@ if [ "$1" = "compile" ]; then
     exit 0
 fi
 if [ "$1" = "generate-abi" ]; then
-    contract=""
+    contract="" abiname=""
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            -c) shift; contract=${1:-} ;;
-            -c=*) contract=${1#*=} ;;
-            --contract-name) shift; contract=${1:-} ;;
-            --contract-name=*) contract=${1#*=} ;;
+            -c|--contract-name) shift; contract=${1:-} ;;
+            -c=*|--contract-name=*) contract=${1#*=} ;;
+            --abi-name) shift; abiname=${1:-} ;;
+            --abi-name=*) abiname=${1#*=} ;;
         esac
         shift || true
     done
-    mkdir -p target && : > "target/${contract}.json"
-    echo "dargo: generated ABI target/${contract}.json args=generate-abi -c $contract"
+    # Real dargo writes target/<abi-name>.abi.json (abi-name defaults to the
+    # contract type). Mimic that so psyup's --abi-name=<package> lands at
+    # target/<package>.abi.json, which deploy's --abi-path auto-fill expects.
+    out="${abiname:-$contract}"
+    mkdir -p target && : > "target/${out}.abi.json"
+    echo "dargo: generated ABI target/${out}.abi.json args=generate-abi -c $contract --abi-name $out"
     exit 0
 fi
 echo "dargo 0.0.0"
