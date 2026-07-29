@@ -57,7 +57,7 @@ cat > "$PSY_HOME/toolchains/psy-0.0.0/bin/psy_user_cli" <<'EOF'
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "Usage: psy_user_cli [OPTIONS] <COMMAND>"
     [ -z "${PSY_USER_CLI_NO_RESULT_FILE_HELP:-}" ] && echo "      --result-file <RESULT_FILE>"
-    echo "Commands: deploy-contract, wallet, get-user-id, register-user"
+    echo "Commands: deploy-contract, wallet, get-user-id, register-user, claim-rewards"
     exit 0
 fi
 
@@ -98,6 +98,8 @@ if [ -n "$result_file" ] && [ -z "${PSY_USER_CLI_NO_RESULT:-}" ]; then
         register-user)
             printf '{"public_key_hash":"0d47fda4480f045506b085ba6921fc86d8cc6feb1b533292db4b1a3af8f89eab","user_id":%s,"transaction_hash":"abc","status":"%s"}\n' \
                 "${PSY_USER_CLI_USER_ID:-42}" "${PSY_USER_CLI_REG_STATUS:-registered}" > "$result_file" ;;
+        claim-rewards)
+            printf '{"status":"claimed","tx_hash":"claimtx123"}\n' > "$result_file" ;;
     esac
 fi
 exit 0
@@ -311,6 +313,44 @@ echo "$out" | grep -q -- "--keystore-path" \
     || { echo "FAIL: deploy should forward --keystore-path when keystore present"; echo "$out"; exit 1; }
 echo "$out" | grep -q -- "--private-key" \
     && { echo "FAIL: deploy must not forward --private-key in keystore mode"; echo "$out"; exit 1; } || true
+rm -rf "$PSY_HOME/keystore"
+
+# 7i. claim auto-fills --jobs-file from ./local_checkpoints/realm_worker_0.backup
+#     and reads status/tx_hash from the result file.
+mkdir -p local_checkpoints
+: > local_checkpoints/realm_worker_0.backup
+out=$(PRIVATE_KEY=0xbeef "$repo_root/psyup" claim 2>&1)
+echo "$out" | grep -q 'psy_user_cli invoked: claim-rewards' \
+    || { echo "FAIL: claim didn't invoke psy_user_cli correctly"; echo "$out"; exit 1; }
+echo "$out" | grep -q -- "--jobs-file ./local_checkpoints/realm_worker_0.backup" \
+    || { echo "FAIL: claim didn't auto-fill --jobs-file"; echo "$out"; exit 1; }
+echo "$out" | grep -q '✓ status: claimed' \
+    || { echo "FAIL: claim status not extracted"; echo "$out"; exit 1; }
+echo "$out" | grep -q '✓ tx_hash: claimtx123' \
+    || { echo "FAIL: claim tx_hash not extracted"; echo "$out"; exit 1; }
+rm -rf local_checkpoints
+
+# 7j. user-supplied --jobs-file overrides auto-fill.
+mkdir -p local_checkpoints
+: > local_checkpoints/realm_worker_0.backup
+out=$(PRIVATE_KEY=0xbeef "$repo_root/psyup" claim --jobs-file custom.json 2>&1)
+echo "$out" | grep -q -- "--jobs-file custom.json" \
+    || { echo "FAIL: user-supplied --jobs-file lost"; echo "$out"; exit 1; }
+echo "$out" | grep -q -- "--jobs-file ./local_checkpoints/realm_worker_0.backup" \
+    && { echo "FAIL: claim should not auto-fill --jobs-file when user passes it"; echo "$out"; exit 1; } || true
+rm -rf local_checkpoints
+
+# 7k. keystore takes priority over PRIVATE_KEY for claim: forwards --keystore-path
+#     (password via WALLET_PASSWORD env) and does NOT synthesize --private-key.
+mkdir -p "$PSY_HOME/keystore"
+: > "$PSY_HOME/keystore/default"
+out=$(PRIVATE_KEY=0xbeef WALLET_PASSWORD=pass "$repo_root/psyup" claim --jobs-file other.json 2>&1)
+echo "$out" | grep -q 'using keystore:' \
+    || { echo "FAIL: claim should report keystore use"; echo "$out"; exit 1; }
+echo "$out" | grep -q -- "--keystore-path" \
+    || { echo "FAIL: claim should forward --keystore-path when keystore present"; echo "$out"; exit 1; }
+echo "$out" | grep -q -- "--private-key" \
+    && { echo "FAIL: claim must not forward --private-key in keystore mode"; echo "$out"; exit 1; } || true
 rm -rf "$PSY_HOME/keystore"
 
 # 8. build error when no manifest

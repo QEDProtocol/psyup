@@ -31,6 +31,8 @@ COMMANDS:
     build [args...]      Compile the contract project in the current directory.
     deploy [args...]     Deploy the compiled contract via psy_user_cli deploy-contract.
                          Pass-through; auto-fills --rpc-config from settings.toml.
+    claim [args...]      Claim miner rewards via psy_user_cli claim-rewards.
+                         Pass-through; auto-fills --rpc-config and --jobs-file.
     init                 Create a default wallet at ~/.psy/keystore/default.
     worker               Run the proof miner (resolves user_id from keystore or PRIVATE_KEY).
     version              Print psyup version.
@@ -61,6 +63,10 @@ case "$cmd" in
     deploy)
         . "$PSYUP_LIB/cmd_deploy.sh"
         cmd_deploy "$@"
+        ;;
+    claim|claim-reward|claim-rewards)
+        . "$PSYUP_LIB/cmd_claim_reward.sh"
+        cmd_claim_reward "$@"
         ;;
     init)
         . "$PSYUP_LIB/cmd_init.sh"
