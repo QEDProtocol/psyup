@@ -6,8 +6,11 @@
 #   --abi-path       ← ./target/<package>.abi.json, ./<package>.abi.json, or ./build/<package>.abi.json
 #   --is-deploy      always added
 #
-# Private key: psy_user_cli reads $PRIVATE_KEY natively (clap env). Just
-# `export PRIVATE_KEY=...` in your shell and psyup forwards env as-is.
+# Wallet source (resolved in this order, any explicit user arg wins):
+#   1. keystore at $PSY_HOME/keystore/default  → forwarded as --keystore-path
+#      (password read from $WALLET_PASSWORD or an interactive prompt); the
+#      password is passed via env, never argv, and no private key is materialized.
+#   2. $PRIVATE_KEY env var                     → read natively by psy_user_cli.
 #
 # Any explicit user arg overrides the corresponding auto-fill.
 
@@ -73,31 +76,33 @@ cmd_deploy() {
         export RPC_CONFIG="$PSY_HOME/config.json"
     fi
 
-    # Private key resolution:
-    #   1. PRIVATE_KEY env var (highest priority, for CI/automation)
-    #   2. Keystore interactive password prompt
-    #
-    # NOTE: this is the ONE place psyup still scrapes a psy_user_cli log line
-    # (the `private_key:` field). deploy-contract only accepts --private-key /
-    # PRIVATE_KEY (DeployContractArgs has no --keystore-path), and the structured
-    # WalletInfoResult deliberately omits private keys — so there is no
-    # structured way to obtain the key here until deploy-contract grows keystore
-    # support. Everywhere else, psyup reads psy_user_cli results via --result-file.
-    if [ -z "${PRIVATE_KEY:-}" ]; then
-        local keystore_file="$PSY_HOME/keystore/default"
-        if [ -f "$keystore_file" ]; then
-            say "entering password for keystore: $keystore_file"
-            local password
+    # Wallet source resolution. deploy-contract takes the same WalletSourceArgs
+    # as the other wallet commands (--keystore-path + --wallet-password, or
+    # --private-key), so the credential is forwarded straight through — no
+    # private key is scraped or materialized. Preference order: keystore first,
+    # then PRIVATE_KEY. An explicit --keystore-path / --private-key on the CLI
+    # is passed through untouched.
+    local keystore_file="$PSY_HOME/keystore/default"
+    local credential_args=()
+
+    if has_flag --keystore-path "$@" || has_flag --private-key "$@"; then
+        : # user supplied a wallet source; pass argv through unchanged
+    elif [ -f "$keystore_file" ]; then
+        say "using keystore: $keystore_file"
+        if [ -z "${WALLET_PASSWORD:-}" ]; then
             printf 'password: ' >&2
-            IFS= read -rs password
+            IFS= read -rs WALLET_PASSWORD
             printf '\n' >&2
-            export PRIVATE_KEY=$(psy_user_cli wallet info --keystore-path "$keystore_file" --wallet-password "$password" 2>/dev/null | grep 'private_key:' | awk '{print $2}') || true
-            if [ -z "$PRIVATE_KEY" ]; then
-                die "failed to decrypt keystore; check password"
-            fi
-        else
-            die "no PRIVATE_KEY set and no keystore at $keystore_file (run 'psyup init' first)"
         fi
+        # deploy-contract binds WALLET_PASSWORD from env (clap), so export it
+        # rather than exposing the password on the command line.
+        credential_args+=(--keystore-path "$keystore_file")
+        export WALLET_PASSWORD
+    elif [ -n "${PRIVATE_KEY:-}" ]; then
+        # psy_user_cli reads PRIVATE_KEY from env natively; nothing to forward.
+        say "using PRIVATE_KEY for identity"
+    else
+        die "no wallet found (no keystore at $keystore_file and no PRIVATE_KEY set); run 'psyup init' first"
     fi
 
     local pkg=""
@@ -145,9 +150,15 @@ cmd_deploy() {
     local res
     res=$(mktemp)
     set +e
-    psy_user_cli --result-file "$res" deploy-contract --is-deploy "$@"
+    # ${credential_args[@]+"..."} is the set -u-safe empty-array expansion
+    # (bash 3.2 errors on a bare "${credential_args[@]}" when it is empty, i.e.
+    # the PRIVATE_KEY-env path, where nothing is forwarded).
+    psy_user_cli --result-file "$res" deploy-contract --is-deploy \
+        ${credential_args[@]+"${credential_args[@]}"} "$@"
     local rc=$?
     set -e
+    # Clear any exported wallet password now that deploy-contract has returned.
+    unset WALLET_PASSWORD 2>/dev/null || true
 
     if [ "$rc" -eq 0 ]; then
         if [ ! -s "$res" ]; then

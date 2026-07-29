@@ -218,8 +218,8 @@ echo "$override_out" | grep -q 'detected contract:' \
     && { echo "FAIL: should not auto-detect when user passed --contract-name"; exit 1; } || true
 
 # 7a. deploy passes through to psy_user_cli with user-supplied args.
-# Identity comes from PRIVATE_KEY env (the supported path — see 7b); the
-# forwarded args here are --contract-path and the auto-filled --abi-path.
+# No keystore present here, so identity comes from PRIVATE_KEY env (see 7h for
+# the keystore path); the forwarded args are --contract-path and --abi-path.
 out=$(PRIVATE_KEY=0xdead "$repo_root/psyup" deploy --contract-path build/main.psyc 2>&1)
 echo "$out" | grep -q 'psy_user_cli invoked: deploy-contract --is-deploy' \
     || { echo "FAIL: deploy didn't invoke psy_user_cli correctly"; echo "$out"; exit 1; }
@@ -298,6 +298,20 @@ echo "$out" | grep -q "too old (no --result-file support)" \
 out=$(PSY_USER_CLI_NO_RESULT=1 PRIVATE_KEY=0xbeef "$repo_root/psyup" deploy --contract-path other.json 2>&1) || true
 echo "$out" | grep -q "protocol incompatible" \
     || { echo "FAIL: missing protocol-incompatible error"; echo "$out"; exit 1; }
+
+# 7h. keystore takes priority over PRIVATE_KEY: when a keystore exists, deploy
+#     forwards --keystore-path (password via WALLET_PASSWORD env) and does NOT
+#     synthesize --private-key, even though PRIVATE_KEY is also set.
+mkdir -p "$PSY_HOME/keystore"
+: > "$PSY_HOME/keystore/default"   # presence selects the keystore path
+out=$(PRIVATE_KEY=0xbeef WALLET_PASSWORD=pass "$repo_root/psyup" deploy --contract-path other.json 2>&1)
+echo "$out" | grep -q 'using keystore:' \
+    || { echo "FAIL: deploy should report keystore use"; echo "$out"; exit 1; }
+echo "$out" | grep -q -- "--keystore-path" \
+    || { echo "FAIL: deploy should forward --keystore-path when keystore present"; echo "$out"; exit 1; }
+echo "$out" | grep -q -- "--private-key" \
+    && { echo "FAIL: deploy must not forward --private-key in keystore mode"; echo "$out"; exit 1; } || true
+rm -rf "$PSY_HOME/keystore"
 
 # 8. build error when no manifest
 cd "$work"
