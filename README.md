@@ -47,6 +47,25 @@ no chasing dependencies.
 | `psyup new <name> [--template <key\|owner/repo\|url>[#subdir]]` | Download a template tarball, rewrite project name in `Dargo.toml` / `package.json`, `git init`. Default template = `dapp`. |
 | `psyup build [args...]` | `dargo compile` plus `dargo generate-abi -c <package>.abi`; auto-detects `--contract-name` from `#[contract]` struct for compilation. |
 | `psyup deploy [args...]` | `psy_user_cli deploy-contract --is-deploy`. Auto-fills `--rpc-config`, `--contract-path`, and `--abi-path` when ABI output exists and `psy_user_cli` supports it. Polls service for numeric `contract_id` and saves to `.psy-deploy`. |
+| `psyup init` | Create the default wallet at `~/.psy/keystore/default`, register it, and print the `KEYSTORE_PATH` export needed by wallet commands. |
+| `psyup worker [args...]` | Run the proof miner. Uses `KEYSTORE_PATH` when set, otherwise `PRIVATE_KEY`; writes completed jobs to `./worker.backup` by default. |
+| `psyup claim [args...]` | Claim miner rewards. Defaults `--jobs-file` to `./worker.backup` (the worker's default output). |
+
+Wallet commands select credentials from the environment. `KEYSTORE_PATH` takes
+priority over `PRIVATE_KEY`; if it is set, it must point to an existing file.
+After creating the default wallet, configure the current shell with:
+
+```sh
+psyup init
+export KEYSTORE_PATH="$HOME/.psy/keystore/default"
+```
+
+To use a raw private key instead, leave `KEYSTORE_PATH` unset:
+
+```sh
+unset KEYSTORE_PATH
+export PRIVATE_KEY=<your-hex-key>
+```
 
 ## Layout
 

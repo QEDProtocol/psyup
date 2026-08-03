@@ -1,5 +1,11 @@
 # psyup init — create default wallet and register on chain
 
+print_keystore_env_hint() {
+    local keystore_file=$1
+    say "To use this wallet with deploy, worker, and claim:"
+    say "  export KEYSTORE_PATH=\"$keystore_file\""
+}
+
 # Read a wallet's public_key_hash from its keystore via `wallet info`, using the
 # structured WalletInfoResult (--result-file). Prints the public_key_hash on
 # stdout and returns non-zero on failure. No private keys are handled.
@@ -70,6 +76,7 @@ cmd_init() {
     # --- Case 1: keystore already exists ---
     if [ -f "$keystore_file" ]; then
         say "wallet already exists at $keystore_file"
+        print_keystore_env_hint "$keystore_file"
         say ""
 
         printf 'Enter keystore password: ' >&2
@@ -155,6 +162,7 @@ cmd_init() {
     say ""
     say "✅ wallet created"
     say "keystore: $keystore_file"
+    print_keystore_env_hint "$keystore_file"
 
     say "checking if user is already registered..."
     local line qrc=0 status user_id=""

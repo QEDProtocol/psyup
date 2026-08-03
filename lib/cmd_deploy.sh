@@ -7,7 +7,7 @@
 #   --is-deploy      always added
 #
 # Wallet source (resolved in this order, any explicit user arg wins):
-#   1. keystore at $PSY_HOME/keystore/default  → forwarded as --keystore-path
+#   1. $KEYSTORE_PATH                          → forwarded as --keystore-path
 #      (password read from $WALLET_PASSWORD or an interactive prompt); the
 #      password is passed via env, never argv, and no private key is materialized.
 #   2. $PRIVATE_KEY env var                     → read natively by psy_user_cli.
@@ -82,12 +82,17 @@ cmd_deploy() {
     # private key is scraped or materialized. Preference order: keystore first,
     # then PRIVATE_KEY. An explicit --keystore-path / --private-key on the CLI
     # is passed through untouched.
-    local keystore_file="$PSY_HOME/keystore/default"
+    local keystore_file="${KEYSTORE_PATH:-}"
     local credential_args=()
+    local using_keystore=0
 
-    if has_flag --keystore-path "$@" || has_flag --private-key "$@"; then
-        : # user supplied a wallet source; pass argv through unchanged
-    elif [ -f "$keystore_file" ]; then
+    if has_flag --keystore-path "$@"; then
+        using_keystore=1
+    elif has_flag --private-key "$@"; then
+        : # user supplied a private key; pass argv through unchanged
+    elif [ -n "$keystore_file" ]; then
+        [ -f "$keystore_file" ] || die "KEYSTORE_PATH does not point to a file: $keystore_file"
+        using_keystore=1
         say "using keystore: $keystore_file"
         if [ -z "${WALLET_PASSWORD:-}" ]; then
             printf 'password: ' >&2
@@ -102,7 +107,7 @@ cmd_deploy() {
         # psy_user_cli reads PRIVATE_KEY from env natively; nothing to forward.
         say "using PRIVATE_KEY for identity"
     else
-        die "no wallet found (no keystore at $keystore_file and no PRIVATE_KEY set); run 'psyup init' first"
+        die "no wallet configured; set KEYSTORE_PATH (and WALLET_PASSWORD) or PRIVATE_KEY"
     fi
 
     local pkg=""
@@ -153,6 +158,11 @@ cmd_deploy() {
     # ${credential_args[@]+"..."} is the set -u-safe empty-array expansion
     # (bash 3.2 errors on a bare "${credential_args[@]}" when it is empty, i.e.
     # the PRIVATE_KEY-env path, where nothing is forwarded).
+    if [ "$using_keystore" -eq 1 ]; then
+        # clap treats an empty env variable as present, so remove it entirely.
+        # This only affects the psyup process, never the caller's shell.
+        unset PRIVATE_KEY
+    fi
     psy_user_cli --result-file "$res" deploy-contract --is-deploy \
         ${credential_args[@]+"${credential_args[@]}"} "$@"
     local rc=$?

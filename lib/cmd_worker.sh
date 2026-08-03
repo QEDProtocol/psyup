@@ -40,15 +40,15 @@ PY
 cmd_worker() {
     require_structured_results
 
-    local keystore_dir="$PSY_HOME/keystore"
-    local keystore_file="$keystore_dir/default"
+    local keystore_file="${KEYSTORE_PATH:-}"
     local rpc_config="$PSY_HOME/config.json"
     local user_id=""
     local has_keystore=0
     local has_private_key=0
     local private_key=""
 
-    if [ -f "$keystore_file" ]; then
+    if [ -n "$keystore_file" ]; then
+        [ -f "$keystore_file" ] || die "KEYSTORE_PATH does not point to a file: $keystore_file"
         has_keystore=1
     fi
 
@@ -58,7 +58,7 @@ cmd_worker() {
     fi
 
     if [ "$has_keystore" -eq 0 ] && [ "$has_private_key" -eq 0 ]; then
-        die "no wallet found. Run 'psyup init' first to create a wallet, or set PRIVATE_KEY."
+        die "no wallet configured; set KEYSTORE_PATH (and WALLET_PASSWORD) or PRIVATE_KEY"
     fi
 
     local public_key_hash=""
@@ -66,7 +66,7 @@ cmd_worker() {
     # pass --keystore-path and the password via env (never a private key).
     local credential_args=()
 
-    if [ "$has_private_key" -eq 1 ]; then
+    if [ "$has_keystore" -eq 0 ] && [ "$has_private_key" -eq 1 ]; then
         say "using PRIVATE_KEY for identity"
         local res rc
         res=$(mktemp)
@@ -180,6 +180,11 @@ EOF
     worker_args+=("$@")
 
     local worker_rc=0
+    if [ "$has_keystore" -eq 1 ]; then
+        # clap treats an empty env variable as present, so remove it entirely.
+        # This only affects the psyup process, never the caller's shell.
+        unset PRIVATE_KEY
+    fi
     psy_worker_cli worker "${worker_args[@]}" || worker_rc=$?
 
     # Clear any exported wallet password now that the worker has exited.

@@ -88,7 +88,7 @@ while [ "$#" -gt 0 ]; do
 done
 set -- "${new[@]}"
 
-echo "psy_user_cli invoked: $* RPC_CONFIG=${RPC_CONFIG:-unset}"
+echo "psy_user_cli invoked: $* RPC_CONFIG=${RPC_CONFIG:-unset} PRIVATE_KEY_ENV=${PRIVATE_KEY:-unset}"
 
 # Write the structured result (--result-file), unless the caller asked us to
 # simulate a toolchain that doesn't write one (protocol-error test).
@@ -307,18 +307,25 @@ out=$(PSY_USER_CLI_NO_RESULT=1 PRIVATE_KEY=0xbeef "$repo_root/psyup" deploy --co
 echo "$out" | grep -q "protocol incompatible" \
     || { echo "FAIL: missing protocol-incompatible error"; echo "$out"; exit 1; }
 
-# 7h. keystore takes priority over PRIVATE_KEY: when a keystore exists, deploy
-#     forwards --keystore-path (password via WALLET_PASSWORD env) and does NOT
-#     synthesize --private-key, even though PRIVATE_KEY is also set.
+# 7h. KEYSTORE_PATH takes priority over PRIVATE_KEY: deploy forwards
+#     --keystore-path (password via WALLET_PASSWORD env) and hides PRIVATE_KEY.
 mkdir -p "$PSY_HOME/keystore"
-: > "$PSY_HOME/keystore/default"   # presence selects the keystore path
-out=$(PRIVATE_KEY=0xbeef WALLET_PASSWORD=pass "$repo_root/psyup" deploy --contract-path other.json 2>&1)
+: > "$PSY_HOME/keystore/default"
+out=$(KEYSTORE_PATH="$PSY_HOME/keystore/default" PRIVATE_KEY=0xbeef WALLET_PASSWORD=pass \
+    "$repo_root/psyup" deploy --contract-path other.json 2>&1)
 echo "$out" | grep -q 'using keystore:' \
     || { echo "FAIL: deploy should report keystore use"; echo "$out"; exit 1; }
 echo "$out" | grep -q -- "--keystore-path" \
     || { echo "FAIL: deploy should forward --keystore-path when keystore present"; echo "$out"; exit 1; }
 echo "$out" | grep -q -- "--private-key" \
     && { echo "FAIL: deploy must not forward --private-key in keystore mode"; echo "$out"; exit 1; } || true
+echo "$out" | grep -q -- "PRIVATE_KEY_ENV=unset" \
+    || { echo "FAIL: deploy must hide PRIVATE_KEY env in keystore mode"; echo "$out"; exit 1; }
+
+# A file at the conventional path alone must not select keystore mode.
+out=$(PRIVATE_KEY=0xbeef "$repo_root/psyup" deploy --contract-path other.json 2>&1)
+echo "$out" | grep -q 'using PRIVATE_KEY for identity' \
+    || { echo "FAIL: deploy should use PRIVATE_KEY when KEYSTORE_PATH is unset"; echo "$out"; exit 1; }
 rm -rf "$PSY_HOME/keystore"
 
 # 7i. claim auto-fills --jobs-file from ./worker.backup and reads
@@ -349,17 +356,20 @@ echo "$out" | grep -q -- "--jobs-file ./worker.backup" \
     && { echo "FAIL: claim should not auto-fill --jobs-file when user passes it"; echo "$out"; exit 1; } || true
 rm -f worker.backup
 
-# 7k. keystore takes priority over PRIVATE_KEY for claim: forwards --keystore-path
-#     (password via WALLET_PASSWORD env) and does NOT synthesize --private-key.
+# 7k. KEYSTORE_PATH takes priority over PRIVATE_KEY for claim: forwards
+#     --keystore-path and hides the PRIVATE_KEY environment variable.
 mkdir -p "$PSY_HOME/keystore"
 : > "$PSY_HOME/keystore/default"
-out=$(PRIVATE_KEY=0xbeef WALLET_PASSWORD=pass "$repo_root/psyup" claim --jobs-file other.json 2>&1)
+out=$(KEYSTORE_PATH="$PSY_HOME/keystore/default" PRIVATE_KEY=0xbeef WALLET_PASSWORD=pass \
+    "$repo_root/psyup" claim --jobs-file other.json 2>&1)
 echo "$out" | grep -q 'using keystore:' \
     || { echo "FAIL: claim should report keystore use"; echo "$out"; exit 1; }
 echo "$out" | grep -q -- "--keystore-path" \
     || { echo "FAIL: claim should forward --keystore-path when keystore present"; echo "$out"; exit 1; }
 echo "$out" | grep -q -- "--private-key" \
     && { echo "FAIL: claim must not forward --private-key in keystore mode"; echo "$out"; exit 1; } || true
+echo "$out" | grep -q -- "PRIVATE_KEY_ENV=unset" \
+    || { echo "FAIL: claim must hide PRIVATE_KEY env in keystore mode"; echo "$out"; exit 1; }
 rm -rf "$PSY_HOME/keystore"
 
 # 8. build error when no manifest
@@ -485,6 +495,8 @@ init_out=$(printf 'pass\n' | PSY_HOME="$init_home" PATH="$init_home/bin:/usr/bin
     "$repo_root/psyup" init 2>&1) || true
 echo "$init_out" | grep -q 'user already registered (user_id: 42)' \
     || { echo "FAIL: init did not reach already-registered path"; echo "$init_out"; exit 1; }
+echo "$init_out" | grep -q "export KEYSTORE_PATH=\"$init_home/keystore/default\"" \
+    || { echo "FAIL: init did not print KEYSTORE_PATH setup hint"; echo "$init_out"; exit 1; }
 
 # 11. worker (offline, stubbed): keystore path forwards --keystore-path and the
 #     password via env to psy_worker_cli; no --private-key is exported by psyup.
@@ -493,14 +505,15 @@ mkdir -p "$worker_home/bin" "$worker_home/keystore" "$worker_home/toolchains/psy
 cp "$PSY_HOME/toolchains/psy-0.0.0/bin/psy_user_cli" "$worker_home/toolchains/psy-0.0.0/bin/psy_user_cli"
 cat > "$worker_home/toolchains/psy-0.0.0/bin/psy_worker_cli" <<'EOF'
 #!/usr/bin/env bash
-echo "psy_worker_cli invoked: $*"
+echo "psy_worker_cli invoked: $* PRIVATE_KEY_ENV=${PRIVATE_KEY:-unset}"
 EOF
 chmod +x "$worker_home/toolchains/psy-0.0.0/bin/"*
 ln -sf "$worker_home/toolchains/psy-0.0.0/bin/psy_user_cli"   "$worker_home/bin/psy_user_cli"
 ln -sf "$worker_home/toolchains/psy-0.0.0/bin/psy_worker_cli" "$worker_home/bin/psy_worker_cli"
-: > "$worker_home/keystore/default"   # presence selects the keystore path
+: > "$worker_home/keystore/default"
 printf '{"defaultNetwork":"test","networks":{"test":{}}}\n' > "$worker_home/config.json"
-worker_out=$(PRIVATE_KEY= WALLET_PASSWORD=pass PSY_HOME="$worker_home" PATH="$worker_home/bin:/usr/bin:/bin" \
+worker_out=$(KEYSTORE_PATH="$worker_home/keystore/default" PRIVATE_KEY=0xbeef WALLET_PASSWORD=pass \
+    PSY_HOME="$worker_home" PATH="$worker_home/bin:/usr/bin:/bin" \
     "$repo_root/psyup" worker 2>&1) || true
 echo "$worker_out" | grep -q -- "--keystore-path" \
     || { echo "FAIL: worker should forward --keystore-path"; echo "$worker_out"; exit 1; }
@@ -510,9 +523,12 @@ echo "$worker_out" | grep -q -- "--completed-jobs-log-file ./worker.backup" \
     || { echo "FAIL: worker should default completed jobs log to ./worker.backup"; echo "$worker_out"; exit 1; }
 echo "$worker_out" | grep -q -- "--private-key" \
     && { echo "FAIL: worker must not forward --private-key in keystore mode"; echo "$worker_out"; exit 1; } || true
+echo "$worker_out" | grep -q -- "PRIVATE_KEY_ENV=unset" \
+    || { echo "FAIL: worker must hide PRIVATE_KEY env in keystore mode"; echo "$worker_out"; exit 1; }
 
 # An explicit completed-jobs log path overrides the default.
-worker_out=$(PRIVATE_KEY= WALLET_PASSWORD=pass PSY_HOME="$worker_home" PATH="$worker_home/bin:/usr/bin:/bin" \
+worker_out=$(KEYSTORE_PATH="$worker_home/keystore/default" PRIVATE_KEY= WALLET_PASSWORD=pass \
+    PSY_HOME="$worker_home" PATH="$worker_home/bin:/usr/bin:/bin" \
     "$repo_root/psyup" worker --completed-jobs-log-file custom.backup 2>&1) || true
 echo "$worker_out" | grep -q -- "--completed-jobs-log-file custom.backup" \
     || { echo "FAIL: worker should preserve explicit completed jobs log path"; echo "$worker_out"; exit 1; }
