@@ -15,6 +15,18 @@ fi
 # shellcheck source=lib/common.sh
 . "$PSYUP_LIB/common.sh"
 
+require_shell_env() {
+    [ -f "$PSY_HOME/env" ] || return 0
+    case ":$PATH:" in
+        *:"$PSY_HOME/bin":*|*:"$PSY_HOME/bin/":*) return 0 ;;
+    esac
+
+    if [ "${SHELL##*/}" = "fish" ]; then
+        die "psyup environment is not loaded; run: source \"$PSY_HOME/env.fish\""
+    fi
+    die "psyup environment is not loaded; run: . \"$PSY_HOME/env\""
+}
+
 usage() {
     cat <<'EOF'
 psyup — PSY toolchain manager
@@ -57,22 +69,27 @@ case "$cmd" in
         cmd_new "$@"
         ;;
     build)
+        require_shell_env
         . "$PSYUP_LIB/cmd_build.sh"
         cmd_build "$@"
         ;;
     deploy)
+        require_shell_env
         . "$PSYUP_LIB/cmd_deploy.sh"
         cmd_deploy "$@"
         ;;
     claim|claim-reward|claim-rewards)
+        require_shell_env
         . "$PSYUP_LIB/cmd_claim_reward.sh"
         cmd_claim_reward "$@"
         ;;
     init)
+        require_shell_env
         . "$PSYUP_LIB/cmd_init.sh"
         cmd_init "$@"
         ;;
     worker)
+        require_shell_env
         . "$PSYUP_LIB/cmd_worker.sh"
         cmd_worker "$@"
         ;;

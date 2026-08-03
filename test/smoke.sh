@@ -18,6 +18,24 @@ mkdir -p "$work/bin" "$PSY_HOME"
 # 2. help works without ~/.psy
 "$repo_root/psyup" help | grep -q 'psyup <command>'
 
+# Runtime commands fail early with an actionable source instruction when the
+# install environment exists but has not been loaded into the current shell.
+: > "$PSY_HOME/env"
+env_out=$(PATH="/usr/bin:/bin" PSY_HOME="$PSY_HOME" PSYUP_LIB="$repo_root/lib" \
+    "$repo_root/psyup" claim 2>&1) || true
+echo "$env_out" | grep -Fq ". \"$PSY_HOME/env\"" \
+    || { echo "FAIL: missing actionable shell-env error"; echo "$env_out"; exit 1; }
+
+# A trailing slash on the PATH entry is equivalent and must not trigger the
+# environment-not-loaded diagnostic.
+mkdir -p "$PSY_HOME/bin"
+env_out=$(PATH="$PSY_HOME/bin/:/usr/bin:/bin" PSY_HOME="$PSY_HOME" PSYUP_LIB="$repo_root/lib" \
+    "$repo_root/psyup" claim 2>&1) || true
+echo "$env_out" | grep -q 'environment is not loaded' \
+    && { echo "FAIL: trailing slash in PSY_HOME/bin caused a false env warning"; echo "$env_out"; exit 1; } || true
+rm -rf "$PSY_HOME/bin"
+rm -f "$PSY_HOME/env"
+
 # Every command library loaded by the dispatcher must be fetched by install.sh.
 for f in cmd_install.sh cmd_new.sh cmd_build.sh cmd_deploy.sh cmd_claim_reward.sh cmd_init.sh cmd_worker.sh; do
     grep -q "$f" "$repo_root/install.sh" \
