@@ -18,6 +18,12 @@ mkdir -p "$work/bin" "$PSY_HOME"
 # 2. help works without ~/.psy
 "$repo_root/psyup" help | grep -q 'psyup <command>'
 
+# Every command library loaded by the dispatcher must be fetched by install.sh.
+for f in cmd_install.sh cmd_new.sh cmd_build.sh cmd_deploy.sh cmd_claim_reward.sh cmd_init.sh cmd_worker.sh; do
+    grep -q "$f" "$repo_root/install.sh" \
+        || { echo "FAIL: install.sh does not fetch dispatcher library $f"; exit 1; }
+done
+
 # 3. install fake toolchain that the dispatcher can find (bin/ + lib/psy-std/)
 mkdir -p "$PSY_HOME/toolchains/psy-0.0.0/bin" \
          "$PSY_HOME/toolchains/psy-0.0.0/lib/psy-std"
