@@ -315,30 +315,33 @@ echo "$out" | grep -q -- "--private-key" \
     && { echo "FAIL: deploy must not forward --private-key in keystore mode"; echo "$out"; exit 1; } || true
 rm -rf "$PSY_HOME/keystore"
 
-# 7i. claim auto-fills --jobs-file from ./local_checkpoints/realm_worker_0.backup
-#     and reads status/tx_hash from the result file.
-mkdir -p local_checkpoints
-: > local_checkpoints/realm_worker_0.backup
+# 7i. claim auto-fills --jobs-file from ./worker.backup and reads
+#     status/tx_hash from the result file.
+: > worker.backup
 out=$(PRIVATE_KEY=0xbeef "$repo_root/psyup" claim 2>&1)
 echo "$out" | grep -q 'psy_user_cli invoked: claim-rewards' \
     || { echo "FAIL: claim didn't invoke psy_user_cli correctly"; echo "$out"; exit 1; }
-echo "$out" | grep -q -- "--jobs-file ./local_checkpoints/realm_worker_0.backup" \
+echo "$out" | grep -q -- "--jobs-file ./worker.backup" \
     || { echo "FAIL: claim didn't auto-fill --jobs-file"; echo "$out"; exit 1; }
 echo "$out" | grep -q '✓ status: claimed' \
     || { echo "FAIL: claim status not extracted"; echo "$out"; exit 1; }
 echo "$out" | grep -q '✓ tx_hash: claimtx123' \
     || { echo "FAIL: claim tx_hash not extracted"; echo "$out"; exit 1; }
-rm -rf local_checkpoints
+rm -f worker.backup
 
-# 7j. user-supplied --jobs-file overrides auto-fill.
-mkdir -p local_checkpoints
-: > local_checkpoints/realm_worker_0.backup
+# 7j. A missing default backup is not passed to claim-rewards.
+out=$(PRIVATE_KEY=0xbeef "$repo_root/psyup" claim 2>&1)
+echo "$out" | grep -q -- "--jobs-file" \
+    && { echo "FAIL: claim should not auto-fill a missing jobs file"; echo "$out"; exit 1; } || true
+
+# 7j2. user-supplied --jobs-file overrides auto-fill.
+: > worker.backup
 out=$(PRIVATE_KEY=0xbeef "$repo_root/psyup" claim --jobs-file custom.json 2>&1)
 echo "$out" | grep -q -- "--jobs-file custom.json" \
     || { echo "FAIL: user-supplied --jobs-file lost"; echo "$out"; exit 1; }
-echo "$out" | grep -q -- "--jobs-file ./local_checkpoints/realm_worker_0.backup" \
+echo "$out" | grep -q -- "--jobs-file ./worker.backup" \
     && { echo "FAIL: claim should not auto-fill --jobs-file when user passes it"; echo "$out"; exit 1; } || true
-rm -rf local_checkpoints
+rm -f worker.backup
 
 # 7k. keystore takes priority over PRIVATE_KEY for claim: forwards --keystore-path
 #     (password via WALLET_PASSWORD env) and does NOT synthesize --private-key.
@@ -497,7 +500,17 @@ echo "$worker_out" | grep -q -- "--keystore-path" \
     || { echo "FAIL: worker should forward --keystore-path"; echo "$worker_out"; exit 1; }
 echo "$worker_out" | grep -q -- "--user 42" \
     || { echo "FAIL: worker should pass --user 42"; echo "$worker_out"; exit 1; }
+echo "$worker_out" | grep -q -- "--completed-jobs-log-file ./worker.backup" \
+    || { echo "FAIL: worker should default completed jobs log to ./worker.backup"; echo "$worker_out"; exit 1; }
 echo "$worker_out" | grep -q -- "--private-key" \
     && { echo "FAIL: worker must not forward --private-key in keystore mode"; echo "$worker_out"; exit 1; } || true
+
+# An explicit completed-jobs log path overrides the default.
+worker_out=$(PRIVATE_KEY= WALLET_PASSWORD=pass PSY_HOME="$worker_home" PATH="$worker_home/bin:/usr/bin:/bin" \
+    "$repo_root/psyup" worker --completed-jobs-log-file custom.backup 2>&1) || true
+echo "$worker_out" | grep -q -- "--completed-jobs-log-file custom.backup" \
+    || { echo "FAIL: worker should preserve explicit completed jobs log path"; echo "$worker_out"; exit 1; }
+echo "$worker_out" | grep -q -- "--completed-jobs-log-file ./worker.backup" \
+    && { echo "FAIL: worker should not add default completed jobs log when explicitly set"; echo "$worker_out"; exit 1; } || true
 
 echo "OK: all smoke checks passed"

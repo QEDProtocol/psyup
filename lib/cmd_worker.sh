@@ -171,6 +171,12 @@ EOF
         warn "no realm API URLs found in $rpc_config for network $(get_current_network)"
     fi
 
+    # Keep completed jobs in the directory where the worker was started unless
+    # the caller explicitly chooses another log file.
+    if ! has_flag --completed-jobs-log-file "$@"; then
+        worker_args+=("--completed-jobs-log-file" "./worker.backup")
+    fi
+
     worker_args+=("$@")
 
     local worker_rc=0

@@ -2,7 +2,7 @@
 #
 # Auto-fills (when not already set on CLI):
 #   --rpc-config     ← RPC_CONFIG env, or $PSY_HOME/config.json
-#   --jobs-file      ← ./local_checkpoints/realm_worker_0.backup (if it exists)
+#   --jobs-file      ← ./worker.backup (if it exists)
 #
 # Wallet source (resolved in this order, any explicit user arg wins):
 #   1. keystore at $PSY_HOME/keystore/default  → forwarded as --keystore-path
@@ -62,9 +62,10 @@ cmd_claim_reward() {
         die "no wallet found (no keystore at $keystore_file and no PRIVATE_KEY set); run 'psyup init' first"
     fi
 
-    # --jobs-file auto-fill from the standard worker backup location.
-    if ! has_flag --jobs-file "$@" && [ -f "./local_checkpoints/realm_worker_0.backup" ]; then
-        set -- --jobs-file "./local_checkpoints/realm_worker_0.backup" "$@"
+    # Match the worker's default completed-jobs log in the current directory.
+    # Preserve the CLI's no-file behavior until the worker has created it.
+    if ! has_flag --jobs-file "$@" && [ -f "./worker.backup" ]; then
+        set -- --jobs-file "./worker.backup" "$@"
     fi
 
     # Run psy_user_cli; it streams human logs to the terminal and writes the
